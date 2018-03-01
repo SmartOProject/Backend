@@ -1,0 +1,2487 @@
+﻿create or replace package 
+/*
+$Rev: 23327 $
+$Author: daria $
+$Date: 2017-12-06 21:37:57 +0300 (Ср, 06 дек 2017) $
+$HeadURL: http://svn.alarislabs.com/invoice/branches/releases/3.5/modules/db/src/packages/prv_inst_utils.pkg $
+*/
+prv_inst_utils
+authid current_user
+as
+  type prv_varchar4000_table_t  is table of varchar2(4000);
+  type prv_varchar32k_table_t   is table of varchar2(32767);
+  --
+  type column_def_t is record
+  (
+    name      varchar2(60),
+    type      varchar2(4000),
+    def_value varchar2(256),
+    nullable  boolean,
+    virtual   boolean,
+    virtual_expression varchar2(4000)
+  );
+  type column_defs_t is table of column_def_t index by pls_integer;
+  --
+  type constr_def_t is record
+  (
+    name        varchar2(60),
+    type        char(1),
+    col_list    varchar2(4000),
+    check_expr  varchar2(4000),
+    ref_expr    varchar2(4000),
+    on_delete   varchar2(256)
+  );
+  type constr_defs_t is table of constr_def_t index by pls_integer;
+  --
+
+  function c_created_col_name         return varchar2 deterministic;
+  function c_created_by_col_name      return varchar2 deterministic;
+  function c_last_updated_col_name    return varchar2 deterministic;
+  function c_last_updated_by_col_name return varchar2 deterministic;
+
+  procedure update_tab_col
+  (
+    p_table_name      varchar2,
+    p_column_name     varchar2,
+    p_data_type       varchar2,
+    p_def_val         varchar2 := null,
+    p_nullable        char := 'Y',
+    p_virtual_clause  varchar2 := null
+  );
+
+  procedure delete_tab_col(p_table_name varchar2, p_column_name varchar2);
+
+  procedure prv_enable_disable_all_jobs
+  (
+    p_action            varchar2,
+    p_force             boolean default true,
+    p_exclude_job_mask  varchar2 default null,
+    p_stop_job_list     varchar2 default null
+  );
+
+  procedure prv_wrap_source (p_name varchar2);
+
+  procedure create_object(p_sql varchar2);
+
+  procedure drop_object(p_object_name varchar2);
+
+  procedure exec_sql(p_sql varchar2, p_ignore_err_code_list varchar2, p_trace_executions boolean := false);
+
+  procedure add_api(p_package_name varchar2);
+
+  procedure add_log(p_table_name varchar2, p_row_dependencies boolean := false);
+
+  procedure add_log_table(p_table_name varchar2, p_row_dependencies boolean := false);
+
+  procedure add_log_trigger(p_table_name varchar2);
+
+  procedure drop_log(p_table_name varchar2:=null);
+
+  procedure update_job
+  (
+    p_job_name        varchar2,
+    p_job_action      varchar2,
+    p_repeat_interval varchar2,
+    p_comments        varchar2,
+    p_enabled         boolean := true,
+    p_job_type        varchar2 := 'STORED_PROCEDURE',
+    p_start_date      timestamp with time zone := systimestamp,
+    p_auto_drop       boolean := false
+  );
+
+
+  procedure wrap_package_body(p_package_name varchar2);
+
+  function get_procedure_name(p_package_name varchar2, p_line number) return varchar2;
+
+  procedure print_all_occurrences(p_str varchar2, p_case_sensitive number := 1);
+
+  procedure move_table
+  (
+    p_table_name      varchar2,
+    p_new_table_tbls  varchar2,
+    p_new_index_tbls  varchar2 := null,
+    p_new_lob_tbls    varchar2 := null
+  );
+
+  procedure move_index(p_table_name varchar2, p_index_name varchar2, p_new_tbls varchar2);
+
+  procedure move_lob(p_table_name varchar2, p_column_name varchar2, p_new_tbls varchar2);
+
+  procedure enable_disable_policies(p_action varchar2, p_object_name varchar2);
+
+  function remove_external_brackets(p_str varchar2) return varchar2;
+
+  function extract_val(p_str varchar2, p_sep char, p_position pls_integer) return varchar2;
+
+  function get_lexems
+  (
+    p_str               varchar2,
+    p_break_regexp      varchar2,
+    p_open_group_char   varchar2,
+    p_close_group_char  varchar2
+  )
+  return prv_varchar32k_table_t;
+
+  procedure update_table(p_create_table varchar2, p_skip_constraints boolean := false);
+
+  procedure update_constraint
+  (
+    p_table_name        varchar2,
+    p_constraint_name   varchar2,
+    p_constraint_type   varchar2,
+    p_columns           varchar2,
+    p_check_expression  varchar2,
+    p_reference_expr    varchar2,
+    p_on_delete         varchar2
+  );
+
+  procedure parse_table_ddl
+  (
+    p_create_table  varchar2,
+    p_table_name    out varchar2,
+    p_temp_table    out boolean,
+    p_column_defs   out column_defs_t,
+    p_constr_defs   out constr_defs_t
+  );
+
+  procedure create_tablespace(p_tbls_name varchar2, p_logging boolean);
+
+  procedure prv_enable_disable_constr
+  (
+    p_action            varchar2,
+    p_constraint_type   varchar2 default null,
+    p_table_list        varchar2 default null
+  );
+
+  procedure load_data
+  (
+    p_dir_from      varchar2,
+    p_file_from     varchar2,
+    p_column_from   varchar2,
+    p_column_to     varchar2,
+    p_table_to      varchar2,
+    p_drop_file     boolean default true
+  );
+
+  procedure reset_sequence_for_table(p_tab_name varchar2, p_col_tab_name varchar2, p_seq_name varchar2);
+
+  procedure update_type(p_create_type varchar2);
+
+  procedure update_prv_db_comments_history(p_patch_num varchar2);
+
+  procedure update_sys_version(p_patch_num varchar2, p_build_num varchar2);
+
+  procedure dump_fragile_report_list(p_exec varchar2 := null);
+
+  function get_invalid_object return sys_refcursor;
+  function get_job_status return number;
+
+  procedure rename_param(p_old varchar2, p_new varchar2, p_safe boolean := false);
+
+  procedure set_nls_format;
+end;
+/
+create or replace package body prv_inst_utils as
+  --
+  function c_created_col_name         return varchar2 deterministic is begin return 'created'; end;
+  function c_created_by_col_name      return varchar2 deterministic is begin return 'created_by'; end;
+  function c_last_updated_col_name    return varchar2 deterministic is begin return 'last_updated'; end;
+  function c_last_updated_by_col_name return varchar2 deterministic is begin return 'last_updated_by'; end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_tab_col
+  (
+    p_table_name      varchar2,
+    p_column_name     varchar2,
+    p_data_type       varchar2,
+    p_def_val         varchar2 := null,
+    p_nullable        char := 'Y',
+    p_virtual_clause  varchar2 := null
+  )
+  is
+    l_exist           number;
+    l_col_rec         user_tab_cols%rowtype;
+    l_col_definition  varchar2(1000);
+    l_is_log_table    boolean := upper(p_table_name) not like 'LOG\_' escape '\';
+    l_dropped_count   pls_integer := 0;
+    --
+    l_virtual_column_changed  boolean;
+    type big_varchar2_array_t is table of varchar2(32767) index by pls_integer;
+    l_objects_to_create       big_varchar2_array_t;
+    --
+    function get_full_type_def(p_data_type varchar2, p_data_precision number, p_data_scale number, p_full number) return varchar2
+    is
+    begin
+      return
+        lower
+        (
+          p_data_type
+          ||case
+              when p_data_type in ('VARCHAR2', 'CHAR', 'RAW')
+              then '(' || l_col_rec.data_length||')'
+              when p_data_type = 'NUMBER' and p_data_precision is not null
+              then '(' || p_data_precision
+                || case
+                  when p_data_scale > 0 or p_full = 1
+                  then ','||p_data_scale
+                end || ')'
+            end
+        );
+    end;
+    --
+    procedure create_dropped_objects
+    is
+      l_restored_count pls_integer := 0;
+    begin
+
+      if l_objects_to_create.count > 0 then
+        for i in l_objects_to_create.first .. l_objects_to_create.last loop
+          exec_sql(l_objects_to_create(i), '-01442,-955');
+          l_restored_count := l_restored_count + 1;
+        end loop;
+      end if;
+
+      if l_restored_count > 0 then
+        dbms_output.put_line('Restored object count: ' || l_restored_count);
+      end if;
+
+    end;
+    --
+  begin
+
+    --Get column definition from dictunary view
+    begin
+      select * into l_col_rec from user_tab_cols
+      where table_name = upper(p_table_name)
+        and column_name = upper(p_column_name);
+    exception when no_data_found then
+      null;
+    end;
+
+    --Init column definition
+    if p_virtual_clause is null then
+
+      l_col_definition := p_column_name
+        || ' ' || p_data_type
+        || case when p_def_val is not null then ' default '||p_def_val end
+        || case
+          when
+            (
+              l_col_rec.nullable is null
+              or l_col_rec.nullable <> p_nullable
+            )
+            and l_is_log_table
+          then
+            case p_nullable
+              when 'Y' then ' null'
+              when 'N' then ' not null'
+            end
+          end;
+
+    else
+
+      l_col_definition := p_column_name || ' as (' || p_virtual_clause || ')';
+
+    end if;
+
+
+    l_virtual_column_changed := trim(replace(replace(lower(nvl(l_col_rec.data_default, '###')), '"'), ' ')) <>
+      replace
+      (
+        replace
+        (
+          lower
+          (
+            case
+              when p_virtual_clause is not null
+              then p_virtual_clause
+              else nvl(p_def_val, '###')
+            end
+          ),
+          '"'
+        ),
+        ' '
+      );
+
+    --Compare column definitions
+    if l_col_rec.column_name is null
+    then
+      --Column not found
+      begin
+        select 1 into l_exist from user_tables
+        where table_name = upper(p_table_name);
+      exception
+        when no_data_found then
+          raise_application_error(-20000, 'Invalid table name: '||p_table_name);
+      end;
+
+      exec_sql('alter table '||p_table_name||' add '||l_col_definition, '0');
+
+    elsif 
+    (
+      p_virtual_clause is null
+      and
+      (
+        (l_col_rec.nullable <> p_nullable and l_is_log_table)
+        or replace(lower(p_data_type), ' ') not in
+          (
+            get_full_type_def(l_col_rec.data_type, l_col_rec.data_precision, l_col_rec.data_scale, 0),
+            get_full_type_def(l_col_rec.data_type, l_col_rec.data_precision, l_col_rec.data_scale, 1)
+          )
+      )
+    )
+    or
+    (
+      p_virtual_clause is not null
+      and l_virtual_column_changed
+    )
+    then
+
+      --Drop all virtual column constraints and indexes
+      if l_virtual_column_changed then
+
+        for i in
+        (
+          select
+            case when exists(select 1 from user_constraints c where c.constraint_name = u.object_name)
+              then 'CONSTRAINT'
+              else 'INDEX'
+            end object_type,
+            object_name
+          from
+          (
+            select index_name object_name
+            from user_ind_columns
+            where table_name = upper(p_table_name)
+            and column_name = upper(p_column_name)
+            union
+            select constraint_name
+            from user_cons_columns
+            where table_name = upper(p_table_name)
+            and column_name = upper(p_column_name)
+          ) u
+        ) loop
+
+          begin
+
+            l_objects_to_create(l_objects_to_create.count + 1) := substr
+            (
+              dbms_metadata.get_ddl
+              (
+                i.object_type,
+                i.object_name
+              ),
+              1,
+              32767
+            );
+
+            exec_sql('alter table ' || p_table_name || ' drop ' || i.object_type || ' ' || i.object_name, -1);
+            l_dropped_count := l_dropped_count + 1;
+
+          exception when others then
+            --Coundn't get ddl
+            null; --TODO
+          end;
+
+        end loop;
+
+        if l_dropped_count > 0 then
+          dbms_output.put_line('Dropped objects count: ' || l_dropped_count);
+        end if;
+
+      end if;
+
+      --Column definition changed
+      exec_sql('alter table '||p_table_name||' modify '||l_col_definition, '-54015');
+
+    else
+
+      --Nothing to do
+      dbms_output.put_line('Column definitions '||p_table_name||'.'||p_column_name||' is actual');
+
+    end if;
+
+    create_dropped_objects;
+
+    exception when others then
+      create_dropped_objects;
+      raise;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure delete_tab_col(p_table_name varchar2, p_column_name varchar2)
+  is
+  begin
+    execute immediate 'alter table '||p_table_name||' drop column '||p_column_name;
+    exception
+      when others then
+        if sqlcode <> -904 then
+          raise;
+        end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure save_debug(p_job_name varchar2, p_start_date date, p_action varchar2)
+  is
+    pragma autonomous_transaction;
+    l_waiting_time  number := sysdate - p_start_date;
+    l_message       varchar2(1000);
+  begin
+    l_message := p_job_name||': '||p_action||', start at: '||to_char(p_start_date, 'YYYY.MM.DD HH24:MI:SS')||
+      ', waiting: '||round(l_waiting_time * 24 * 60, 2)||' min(s)';
+    
+    execute immediate '
+begin
+  insert into prv_debug(debug_id, debug_time, debug_source, debug_user, debug_message, debug_type)
+  values (prv_debug_id_seq.nextval, sysdate, :source, user, :message, ''Info'');
+  commit;
+end;'
+    using 'prv_enable_disable_all_jobs', l_message;
+  exception
+    when others then
+      if sqlerrm like '%PLS-00201%' then
+        null;
+      else
+        raise;
+      end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure prv_enable_disable_all_jobs
+  (
+    p_action            varchar2,
+    p_force             boolean default true,
+    p_exclude_job_mask  varchar2 default null,
+    p_stop_job_list     varchar2 default null
+  )
+  is
+    l_cur         sys_refcursor;
+    l_record      varchar2(30);
+    l_sql         varchar2(4000);
+    l_start_date  date;
+    -----------------------------------------------
+    procedure create_table_prv_enabled_job
+    is
+    begin
+      prv_inst_utils.update_table('
+create table prv_enabled_job
+(
+  job_name varchar2(30)
+)');
+    end;
+    -----------------------------------------------
+    procedure wait(p_job_name varchar2)
+    is
+    begin
+      loop
+        begin
+          dbms_scheduler.disable(p_job_name, false);
+          return;
+        exception
+          when others then
+            if sqlcode = -27478 then
+              dbms_lock.sleep(1);
+            elsif sqlcode = -27476 then
+              return;
+            else
+              raise;
+            end if;
+        end;
+      end loop;
+    end;
+  begin
+    create_table_prv_enabled_job;
+
+    case p_action
+      when 'disable' then
+
+        l_sql := '
+insert into prv_enabled_job
+select job_name
+from user_scheduler_jobs
+where enabled = ''TRUE''
+  and (comments is null or comments != ''WORKER'')
+  and (:p_exclude_job_mask is null or job_name not like :p_exclude_job_mask)
+  and (:p_stop_job_list is null or instr(''|''||:p_stop_job_list||''|'', ''|''||job_name||''|'') > 0)';
+
+        execute immediate l_sql
+        using p_exclude_job_mask, p_exclude_job_mask, upper(p_stop_job_list), upper(p_stop_job_list);
+
+        open l_cur for 'select job_name from prv_enabled_job';
+        loop
+          fetch l_cur into l_record;
+          exit when l_cur%notfound;
+          begin
+            dbms_scheduler.disable(l_record, p_force);
+          exception
+            when others then
+              if sqlcode = -27476 then
+                null;
+              else
+                raise;
+              end if;
+          end;
+        end loop;
+        close l_cur;
+
+        --Wait until job finish
+        open l_cur for 'select job_name from prv_enabled_job';
+        loop
+          fetch l_cur into l_record;
+          exit when l_cur%notfound;
+          l_start_date := sysdate;
+          wait(l_record);
+          dbms_output.put_line('Job '||l_record||' was disabled');
+          save_debug(l_record, l_start_date, p_action);
+        end loop;
+        close l_cur;
+
+      when 'enable' then
+
+        open l_cur for 'select job_name from prv_enabled_job';
+        loop
+          fetch l_cur into l_record;
+          exit when l_cur%notfound;
+          begin
+            l_start_date := sysdate;
+            dbms_scheduler.enable(l_record);
+            dbms_output.put_line('Job '||l_record||' was enabled');
+            save_debug(l_record, l_start_date, p_action);
+          exception
+            when others then
+              if sqlcode = -27476 then
+                dbms_output.put_line('Job '||l_record||' does not exist');
+              else
+                raise;
+              end if;
+          end;
+        end loop;
+        close l_cur;
+        execute immediate 'delete from prv_enabled_job';
+
+      else
+        dbms_output.put_line('Wrong argument supplied. Usage: disable|enable');
+      end case;
+
+      commit;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure prv_wrap_source(p_name varchar2)
+  is
+    l_code dbms_sql.varchar2a;
+
+    cursor l_cur(p_type varchar2)
+    is
+      select text
+      from user_source
+      where name = p_name
+        and type = p_type
+      order by line;
+  begin
+    for rec in (select distinct type from user_source where name = p_name and line = 1 order by 1)
+    loop
+      open l_cur(rec.type);
+      fetch l_cur
+      bulk collect
+      into l_code;
+      close l_cur;
+
+      l_code(0) := 'create or replace ';
+      dbms_ddl.create_wrapped(l_code, l_code.first, l_code.last);
+
+      l_code.delete;
+    end loop;
+    commit;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function create_object(p_sql varchar2) return boolean
+  is
+  begin
+    execute immediate p_sql;
+    dbms_output.put_line('Object created');
+    return true;
+
+    exception
+      when others then
+        if sqlcode = -00955 then
+          dbms_output.put_line('Object already exists');
+        elsif sqlcode = -02260 then
+          dbms_output.put_line('Primary key already exists');
+        elsif sqlcode = -02261 then
+          dbms_output.put_line('Such unique or primary key already exists in the table');
+        elsif sqlcode = -02275 then
+          dbms_output.put_line('Such a referential constraint already exists in the table');
+        elsif sqlcode = -01408 then
+          dbms_output.put_line('Such column list already indexed in create index');
+        else
+          raise_application_error(-20000, 'Error: ' || sqlerrm || ' in ' || p_sql);
+        end if;
+
+        return false;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure create_object(p_sql varchar2)
+  is
+  begin
+    if not create_object(p_sql) then
+      dbms_output.put_line('Object not created');
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure drop_object(p_object_name varchar2)
+  is
+  begin
+    for i in
+    (
+      select 'drop ' || object_type || ' "' || object_name || '"' cmd
+      from all_objects
+      where (object_name like upper(p_object_name) or object_name = p_object_name)
+        and object_type like case when object_type like 'PACKAGE%' then 'PACKAGE' else '%' end
+        and object_type not like '%PARTITION'
+      order by decode
+      (
+        object_type, 
+        'JAVA SOURCE', 1,
+        'JAVA CLASS', 2,
+        100
+      )
+    )
+    loop
+
+      execute immediate i.cmd;
+      dbms_output.put_line(i.cmd);
+      dbms_output.put_line('Object dropped');
+
+    end loop;
+
+  exception
+    when no_data_found then
+      dbms_output.put_line('Object '||p_object_name||' not exists or already dropped');
+    when others then
+      dbms_output.put_line('Error dropping object '||p_object_name||': '||sqlerrm);
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure exec_sql(p_sql varchar2, p_ignore_err_code_list varchar2, p_trace_executions boolean := false)
+  is
+  begin
+
+    execute immediate p_sql;
+
+    dbms_output.put_line('Executed successfully: '||p_sql);
+
+    if p_trace_executions then
+      execute immediate 'begin prv_utils.save_debug(''Sql executed'', :p_sql); end;'
+      using p_sql;
+    end if;
+
+    exception
+      when others then
+        if instr(','||p_ignore_err_code_list||',', ','||sqlcode||',') > 0 then
+          dbms_output.put_line('Exceptions ignored');
+        else
+          raise;
+        end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_api(p_package_name varchar2)
+  is
+    l_cmd varchar2(2048);
+  begin
+    select 'grant execute on '||p_package_name||' to INVOICE_API_RL' into l_cmd from dual;
+    execute immediate l_cmd;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_log(p_table_name varchar2, p_row_dependencies boolean := false)
+  is
+  begin
+    add_log_table(p_table_name, p_row_dependencies);
+    add_log_trigger(p_table_name);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_log_table_ddl(p_table_name varchar2, p_log_table_name out varchar2, p_row_dependencies boolean := false) return varchar2
+  is
+    l_sql varchar2(4000);
+  begin
+
+    p_log_table_name := 'log_'||substr(lower(p_table_name), 1, 23);
+    l_sql := 'create table ' || p_log_table_name || '
+(
+  LOG_ID NUMBER NOT NULL,
+  LOG_TIME DATE NOT NULL,
+  LOG_ACTION VARCHAR2(4) NOT NULL,
+  SESSION_ID NUMBER NOT NULL,
+  EXEC_ID NUMBER';
+
+
+    for i in
+    (
+      select column_id, column_name, data_type, data_length, data_precision, data_scale
+      from user_tab_columns
+      where table_name = upper(p_table_name)
+      and (table_name != 'PRV_SESSION' or column_name != 'SESSION_ID')
+      and column_name not in 
+      (
+        upper(c_created_col_name),
+        upper(c_created_by_col_name),
+        upper(c_last_updated_col_name),
+        upper(c_last_updated_by_col_name)      
+      )
+      order by column_id
+    )
+    loop
+      l_sql := l_sql||', '||chr(10)||'  '||i.column_name||' '||i.data_type;
+      if i.data_type = 'VARCHAR2' then
+        l_sql := l_sql || '(' || i.data_length || ')';
+      end if;
+    end loop;
+
+    l_sql := l_sql || '
+) tablespace prv_log_tbls '
+    ||case
+      when p_row_dependencies
+      then 'rowdependencies '
+    end
+    || 'enable row movement '
+    || ';';
+
+    return l_sql;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_log_table(p_table_name varchar2, p_row_dependencies boolean := false)
+  is
+    l_log_table_name      varchar2(30);
+    l_dependencies        user_tables.dependencies%type;
+    l_backup_table        user_tables.table_name%type;
+    l_log_table_ddl       varchar2(4000) := get_log_table_ddl(p_table_name, l_log_table_name, p_row_dependencies);
+    l_full_ins_list       varchar2(32000);
+  begin
+
+    update_table(l_log_table_ddl);
+
+    --Check rowdependency
+    select dependencies
+    into l_dependencies
+    from user_tables
+    where table_name = upper(l_log_table_name);
+
+    --Turn on rowdependency
+    if l_dependencies = 'DISABLED' and p_row_dependencies then
+
+      l_backup_table := substr(l_log_table_name, 1, 27) || '_bk';
+
+      --Backup log data
+      create_object('create table ' || l_backup_table || ' as select * from ' || l_log_table_name);
+
+      --Drop old log table
+      drop_object(l_log_table_name);
+
+      --Create new log table
+      update_table(l_log_table_ddl);
+
+      --Change dependencies
+      select listagg(column_name, ',') within group (order by 1)
+      into l_full_ins_list
+      from user_tab_cols
+      where table_name = upper(l_log_table_name);
+
+      --Restore data
+      execute immediate 'insert /*+append */
+        into ' || l_log_table_name ||' (' || l_full_ins_list || ')
+        select '|| l_full_ins_list || '
+        from ' || l_backup_table;
+
+      commit;
+
+      --Drop backup table
+      drop_object(l_backup_table);
+
+    end if;
+
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_pk_name(p_table_name varchar2) return varchar2
+  is
+    l_res varchar2(4000);
+  begin
+    select listagg(cc.column_name, ',') within group (order by cc.position)
+    into l_res
+    from user_constraints c
+    inner join user_cons_columns cc on (cc.constraint_name = c.constraint_name and cc.table_name = c.table_name)
+    where c.constraint_type = 'P'
+    and c.table_name = upper(p_table_name);
+
+    return lower(l_res);
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_log_trigger(p_table_name varchar2)
+  is
+    l_table_name          varchar2(256) := lower(p_table_name);
+    l_trigger_name        varchar2(256) := 'log_'||substr(l_table_name,1,23)||'_tr';
+    l_log_table_name      varchar2(256) := 'log_'||substr(l_table_name,1,23); -- index name allowance
+    --
+    l_cmd                 varchar2(32000);
+    l_insert_column_list  varchar2(32000);
+    l_insert_value_list   varchar2(32000);
+    l_delete_column_list  varchar2(32000);
+    l_delete_value_list   varchar2(32000);
+    l_status              user_objects.status%type;
+    --
+    l_special_col_exists  number(1);
+    --
+    l_pk_name             varchar2(4000) := get_pk_name(l_table_name);
+    --
+    cursor l_tab_column_cur is
+      select column_id, column_name
+      from user_tab_columns
+      where table_name = upper(p_table_name)
+        and (table_name != 'PRV_SESSION' or column_name != 'SESSION_ID')
+        and column_name not in 
+        (
+          upper(c_created_col_name),
+          upper(c_created_by_col_name),
+          upper(c_last_updated_col_name),
+          upper(c_last_updated_by_col_name)      
+        )
+      order by column_id;
+  begin
+
+    for rec in l_tab_column_cur loop
+      l_insert_column_list := l_insert_column_list||', '||lower(rec.column_name);
+      l_insert_value_list := l_insert_value_list||', :new.'||lower(rec.column_name);
+      l_delete_column_list := l_delete_column_list||', '||lower(rec.column_name);
+      l_delete_value_list := l_delete_value_list||', :old.'||lower(rec.column_name);
+    end loop;
+
+
+
+    select 
+      max(decode(column_name, upper(c_created_col_name), 1, 0))
+      + max(decode(column_name, upper(c_created_by_col_name), 1, 0))
+      + max(decode(column_name, upper(c_last_updated_col_name), 1, 0))
+      + max(decode(column_name, upper(c_last_updated_by_col_name), 1, 0))
+    into 
+      l_special_col_exists
+    from user_tab_columns
+    where table_name = upper(p_table_name);
+
+
+    l_cmd := 'create or replace trigger '||l_trigger_name||'
+for insert or update or delete on '||l_table_name||'
+compound trigger
+  l_min_log_id number;
+  l_max_log_id number;
+  l_last_id varchar2(4000);
+  --
+  before statement is
+  begin
+    if prv_var.m_skip_log_triggers is null and prv_var.m_exec_id is null then
+      api.log_exec(''Direct data update'', ''' || l_table_name || ''');
+    end if;
+  end before statement;
+  --' || case when l_special_col_exists = 4 then
+  '
+  before each row is
+  begin
+
+    if inserting then
+      :new.' || c_created_col_name || ' := sysdate;
+      :new.' || c_created_by_col_name || ' := nvl(sys_context(''user_ctx'', ''user_name''), user);
+    end if;
+    
+    if inserting or updating then 
+      :new.' || c_last_updated_col_name || ' := sysdate;
+      :new.' || c_last_updated_by_col_name || ' := nvl(sys_context(''user_ctx'', ''user_name''), user);
+    end if;
+  
+  end before each row;
+  --'
+ end || '
+  after each row is
+    l_session_id number := sys_context(''userenv'', ''sessionid'');
+    l_updating char(1) := case when updating then ''u'' end;
+    l_log_id number;
+  begin
+    if prv_var.m_skip_log_triggers is null then
+      if deleting or updating then
+        insert into '||l_log_table_name||'(log_id, log_time, log_action, session_id, exec_id'||l_delete_column_list||')
+        values (prv_log_id_seq.nextval, sysdate, l_updating||''d'', l_session_id, prv_var.m_exec_id'||l_delete_value_list||')
+        returning log_id into l_log_id;
+      end if;
+      if inserting or updating then
+        insert into '||l_log_table_name||'(log_id, log_time, log_action, session_id, exec_id'||l_insert_column_list||')
+        values (nvl(l_log_id, prv_log_id_seq.nextval), sysdate, l_updating||''i'', l_session_id, prv_var.m_exec_id'||l_insert_value_list||')
+        returning log_id into l_log_id;
+        l_last_id := ' || case when instr(l_pk_name, ',') = 0 then ':new.' || l_pk_name else 'null' end || ';
+      end if;
+      if l_min_log_id is null then
+        l_min_log_id := l_log_id;
+      end if;
+      l_max_log_id := l_log_id;
+    end if;
+  end after each row;
+  --
+  after statement is
+  begin
+    if prv_var.m_skip_log_triggers is null and l_min_log_id is not null then
+      prv_queue_utils.enqueue_dml_msg('''||upper(l_table_name)||''', l_min_log_id, l_max_log_id, null, l_last_id);
+    end if;
+  end after statement;
+  --
+end;';
+
+    begin
+      execute immediate l_cmd;
+    exception
+      when others then
+        raise_application_error(-20000, 'Error creating trigger: '||sqlerrm);
+    end;
+
+    select status
+    into l_status
+    from user_objects
+    where object_name = upper(l_trigger_name);
+
+    if l_status = 'VALID' then
+      dbms_output.put_line('create trigger '||l_trigger_name);
+    else
+      raise_application_error(-20000, 'Trigger '||l_trigger_name||' invalid');
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure drop_log(p_table_name varchar2:=null)
+  is
+    l_cmd varchar2(2048);
+    cursor l_log_table_cur is
+    select *
+    from user_objects
+    where object_type in ('TABLE','TRIGGER')
+      and
+      (
+        (p_table_name is not null and object_name like 'LOG\_'||upper(p_table_name)||'%' escape '\')
+        or (p_table_name is null and object_name like 'LOG\_%' escape '\')
+      )
+    order by decode(object_type,'TRIGGER',10,'TABLE',5,0) desc;
+  begin
+    for rec in l_log_table_cur loop
+      l_cmd:='drop '||rec.object_type||' '||rec.object_name;
+      dbms_output.put_line(l_cmd);
+      execute immediate l_cmd;
+    end loop;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function tab_row_level_dep(p_table_name varchar2) return boolean
+  is
+    l_dependencies user_tables.dependencies%type;
+  begin
+    
+    select dependencies
+    into l_dependencies
+    from user_tables
+    where table_name = upper(p_table_name);
+    
+    return l_dependencies = 'ENABLED';
+
+    exception when no_data_found then
+      raise_application_error(-20000, 'Table ' || p_table_name || ' not found');
+  end;
+  -----------------------------------------------------------------------------------------------
+  function sql_row_level_dep(p_sql varchar2) return boolean
+  is
+  begin
+    return regexp_instr(p_sql || ';', '[^a-zA-Z]rowdependencies[^a-zA-Z]') > 0;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_job
+  (
+    p_job_name        varchar2,
+    p_job_action      varchar2,
+    p_repeat_interval varchar2,
+    p_comments        varchar2,
+    p_enabled         boolean := true,
+    p_job_type        varchar2 := 'STORED_PROCEDURE',
+    p_start_date      timestamp with time zone := systimestamp,
+    p_auto_drop       boolean := false
+  )
+  is
+    l_repeat_interval user_scheduler_jobs.repeat_interval%type;
+    l_enabled         user_scheduler_jobs.enabled%type;
+    l_job_name        user_scheduler_jobs.job_name%type := upper(p_job_name);
+    --
+  begin
+
+    if p_job_type = 'STORED_PROCEDURE' then
+      begin
+        if p_job_action = dbms_assert.sql_object_name(p_job_action) then
+          null;
+        end if;
+      exception
+        when others then
+          if sqlcode = -44002 then
+            dbms_output.put_line('Warning: ''' || p_job_action || ''' is not a valid schema object');
+          end if;
+      end;
+    elsif p_job_type = 'PLSQL_BLOCK' and not regexp_like(p_job_action, '^begin\s.+\send;', 'in') then
+      dbms_output.put_line('Warning: ''' || p_job_action || ''' doesn''t seem like a valid PL/SQL block');
+    end if;
+
+    select repeat_interval, enabled
+    into l_repeat_interval, l_enabled
+    from user_scheduler_jobs
+    where job_name = l_job_name;
+
+    begin
+      dbms_scheduler.set_attribute(l_job_name, 'job_action', p_job_action);
+      dbms_scheduler.set_attribute(l_job_name, 'job_type', p_job_type);
+      dbms_scheduler.set_attribute(l_job_name, 'comments', p_comments);
+
+      dbms_output.put_line('Job ' || l_job_name || ' updated');
+
+    exception
+      when others then
+        if sqlcode in (-27452, -27470) then
+          dbms_scheduler.drop_job(l_job_name, true);
+          dbms_scheduler.create_job
+          (
+            job_name        => l_job_name,
+            job_type        => p_job_type,
+            job_action      => p_job_action,
+            start_date      => p_start_date,
+            repeat_interval => l_repeat_interval,
+            enabled         => case when l_enabled = 'TRUE' then true else false end,
+            auto_drop       => p_auto_drop,
+            comments        => p_comments
+          );
+          dbms_output.put_line('Job ' || l_job_name || ' re-created');
+        end if;
+    end;
+
+  exception
+    when no_data_found then
+      dbms_scheduler.create_job
+      (
+        job_name        => l_job_name,
+        job_type        => p_job_type,
+        job_action      => p_job_action,
+        start_date      => p_start_date,
+        repeat_interval => p_repeat_interval,
+        enabled         => p_enabled,
+        auto_drop       => p_auto_drop,
+        comments        => p_comments
+      );
+      dbms_output.put_line('Job ' || l_job_name || ' created');
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure wrap_package_body(p_package_name varchar2)
+  is
+    l_code dbms_sql.varchar2a;
+  begin
+
+    select text
+    bulk collect into l_code
+    from user_source
+    where name = upper(p_package_name)
+      and type = 'PACKAGE BODY'
+    order by line;
+
+    l_code(0) := 'create or replace ';
+    dbms_ddl.create_wrapped(l_code, l_code.first, l_code.last);
+
+    commit;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_procedure_name(p_package_name varchar2, p_line number) return varchar2
+  is
+    l_begin_cnt   pls_integer := 1;
+    l_state       varchar2(1) := 'D';
+
+    function extract_text(p_text varchar2, p_keyword varchar2) return varchar2
+    is
+      l_str varchar2(4000);
+    begin
+      l_str := substr
+        (
+          regexp_substr(p_text, p_keyword || '[[:space:]][^(;|\()]+'),
+          length(p_keyword) + 1
+        );
+
+      if regexp_instr(l_str, '[[:space:]]return[[:space:]]') > 0 then
+        return regexp_replace(substr(l_str, 1, regexp_instr(l_str, '[[:space:]]return[[:space:]]')), '[[:space:]]+');
+      elsif regexp_instr(l_str, '[[:space:]]is[[:space:]]') > 0 then
+        return regexp_replace(substr(l_str, 1, regexp_instr(l_str, '[[:space:]]is[[:space:]]')), '[[:space:]]+');
+      else
+        return regexp_replace(l_str, '[[:space:]]+');
+      end if;
+    end;
+
+  begin
+
+    for i in
+    (
+      select text from user_source
+      where type = 'PACKAGE BODY'
+        and line <= p_line
+        and name = p_package_name
+      order by line desc
+    )
+    loop
+
+      --Looking for procedure/function declaration
+      if l_state = 'D' then
+
+        if regexp_instr(i.text, 'end[[:space:]]+;') > 0 then
+          l_begin_cnt := l_begin_cnt + 1;
+        end if;
+
+        if regexp_instr(i.text, 'begin[[:space:]]*') > 0 then
+          l_begin_cnt := l_begin_cnt - 1;
+        end if;
+
+        --Looking for procedure/function is
+        if l_begin_cnt <= 1 and regexp_instr(i.text, 'is[[:space:]]*') > 0 then
+          l_state := 'N';
+        end if;
+
+      end if;
+
+
+      --Looking for procedure/function is
+      if l_state = 'N' then
+
+        if instr(i.text, 'procedure') > 0 then
+          return extract_text(i.text, 'procedure');
+        elsif instr(i.text, 'function') > 0 then
+          return extract_text(i.text, 'function');
+        end if;
+
+      end if;
+
+    end loop;
+
+    return null;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure print_all_occurrences(p_str varchar2, p_case_sensitive number := 1)
+  is
+  begin
+
+    for i in
+    (
+      select * from user_source
+      where type = 'PACKAGE BODY'
+        and
+        (
+          (p_case_sensitive = 0 and lower(text) like '%' || lower(p_str) || '%')
+          or (p_case_sensitive = 1 and text like '%' || p_str || '%')
+        )
+      order by name, line
+    )
+    loop
+      dbms_output.put_line(lower(i.name) || '.' || get_procedure_name(i.name, i.line) || ' -> ' || i.line);
+    end loop;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure move_table
+  (
+    p_table_name      varchar2,
+    p_new_table_tbls  varchar2,
+    p_new_index_tbls  varchar2 := null,
+    p_new_lob_tbls    varchar2 := null
+  )
+  is
+    l_old_tbls      all_tables.tablespace_name%type;
+    l_partitioned   all_tables.partitioned%type;
+  begin
+
+    --Move table
+    begin
+
+      select tablespace_name, partitioned
+      into l_old_tbls, l_partitioned
+      from all_tables
+      where table_name = upper(p_table_name)
+        and owner = 'INVOICE';
+
+    exception when no_data_found then
+      raise_application_error(-20000, 'Table ' || p_table_name || ' doesn''t exist');
+    end;
+
+    if l_partitioned = 'NO' then
+      --Not partitioned table
+      if l_old_tbls <> upper(p_new_table_tbls) then
+        exec_sql
+        (
+          'alter table ' || p_table_name || ' move tablespace ' || p_new_table_tbls,
+          null,
+          true
+        );
+      else
+        dbms_output.put_line('Table ' || p_table_name || ' remains in ' || l_old_tbls);
+      end if;
+    else
+      --Partitioned table
+      --Change default partition
+      exec_sql
+      (
+        'alter table ' || p_table_name || ' modify default attributes '|| ' tablespace '||p_new_table_tbls,
+        null,
+        true
+      );
+
+      --Move partitions
+      for i in
+      (
+        select table_name, partition_name
+        from all_tab_partitions
+        where table_name = upper(p_table_name)
+          and table_owner = 'INVOICE'
+          and tablespace_name not like p_new_table_tbls
+        order by partition_position desc
+      )
+      loop
+        exec_sql
+        (
+          'alter table '||p_table_name||' move partition '||i.partition_name||' tablespace '||p_new_table_tbls,
+          null,
+          true
+        );
+      end loop;
+
+    end if;
+
+    --Move index
+    if p_new_index_tbls is not null then
+      move_index(p_table_name, null, p_new_index_tbls);
+    end if;
+
+    --Move blob fields
+    if p_new_lob_tbls is not null then
+      move_lob(p_table_name, null, p_new_lob_tbls);
+    end if;
+
+    --Rebuild not valid indexes
+    for i in
+    (
+      select index_name, status
+      from all_indexes
+      where table_name = p_table_name
+        and status <> 'VALID'
+    )
+    loop
+      exec_sql
+      (
+        'alter index ' || i.index_name || ' rebuild',
+        null,
+        true
+      );
+    end loop;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure move_index(p_table_name varchar2, p_index_name varchar2, p_new_tbls varchar2)
+  is
+    l_moved boolean := false;
+  begin
+
+    for i in
+    (
+      select index_name, partitioned
+      from all_indexes
+      where table_name = upper(p_table_name)
+        and owner = 'INVOICE'
+        and (p_index_name is null or index_name = upper(p_index_name))
+        and tablespace_name <> upper(p_new_tbls)
+    )
+    loop
+
+      if i.partitioned = 'NO' then
+
+        --Not partitioned index
+        exec_sql
+        (
+          'alter index ' || i.index_name || ' rebuild tablespace ' || p_new_tbls,
+          null,
+          true
+        );
+        dbms_output.put_line('Index ' || i.index_name || ' moved to ' || p_new_tbls);
+        l_moved := true;
+
+      else
+
+        --Partitioned index
+        exec_sql
+        (
+          'alter index ' || i.index_name || ' modify default attributes ' || ' tablespace '|| p_new_tbls,
+          null,
+          true
+        );
+
+        for j in
+        (
+          select index_name, partition_name
+          from all_ind_partitions
+          where index_owner = 'INVOICE'
+            and tablespace_name <> upper(p_new_tbls)
+            and index_name = i.index_name
+            and (tablespace_name <> upper(p_new_tbls) or status not like 'USABLE')
+        )
+        loop
+
+          exec_sql
+          (
+            'alter index ' || j.index_name || ' rebuild partition ' || j.partition_name || ' tablespace ' || p_new_tbls,
+            null,
+            true
+          );
+          l_moved := true;
+
+        end loop;
+
+      end if;
+
+    end loop;
+
+    if not l_moved then
+      dbms_output.put_line('No index moved for ' || p_table_name);
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure move_lob(p_table_name varchar2, p_column_name varchar2, p_new_tbls varchar2)
+  is
+    l_moved boolean := false;
+  begin
+
+    for i in
+    (
+      select column_name
+      from all_lobs
+      where table_name = upper(p_table_name)
+        and owner = 'INVOICE'
+        and (p_column_name is null or column_name = upper(p_column_name))
+        and tablespace_name <> upper(p_new_tbls)
+    )
+    loop
+
+      exec_sql
+      (
+        'alter table ' || p_table_name || ' move lob(' || i.column_name || ') store as (tablespace ' || p_new_tbls || ')',
+        null,
+        true
+      );
+      l_moved := true;
+
+    end loop;
+
+    if not l_moved then
+      dbms_output.put_line('No lob moved for ' || p_table_name);
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure enable_disable_policies(p_action varchar2, p_object_name varchar2)
+  is
+  begin
+
+    null;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function remove_external_brackets(p_str varchar2) return varchar2
+  is
+    l_res varchar2(32767) := p_str;
+  begin
+
+    --Remove left bracket
+    l_res := case when substr(l_res, 1, 1) = '(' then substr(l_res, 2) else l_res end;
+
+    --Remove right bracket
+    l_res := case when substr(l_res, length(l_res)) = ')' then substr(l_res, 1, length(l_res) - 1) else l_res end;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function extract_val(p_str varchar2, p_sep char, p_position pls_integer) return varchar2
+  is
+    l1 pls_integer := case when p_position = 1 then 0 else instr(p_str, p_sep, 1, p_position - 1) end;
+    l2 pls_integer := instr(p_str||p_sep, p_sep, 1, p_position);
+  begin
+    return substr(p_str, l1 + 1, l2 - l1 - 1);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_lexems
+  (
+    p_str varchar2,
+    p_break_regexp varchar2,
+    p_open_group_char varchar2,
+    p_close_group_char varchar2
+  ) return prv_varchar32k_table_t
+  is
+    l_prev_idx          pls_integer;
+    l_idx               pls_integer;
+    l_res               prv_varchar32k_table_t := prv_varchar32k_table_t();
+    l_brackets          pls_integer;     --brackets
+    l_quoted            boolean;        --quotes
+    l_cur_char             varchar2(1);
+    --
+    procedure start_new_lexem
+    is
+      l_buf varchar2(32767) := substr(p_str, l_prev_idx, least(l_idx - l_prev_idx, 32767));
+    begin
+      if l_buf is not null and regexp_like(l_buf, '\S+') then
+        l_res.extend(1);
+        l_res(l_res.last) := trim(regexp_replace(l_buf, '^' || p_break_regexp));
+        l_prev_idx := l_idx;
+      end if;
+    end;
+    --
+  begin
+
+    l_prev_idx := 1;
+    l_idx := 1;
+    l_quoted := false;
+    l_brackets := 0;
+
+    loop
+
+      exit when l_idx > length(p_str);
+
+      l_cur_char := substr(p_str, l_idx, 1);
+
+      if l_quoted then
+
+        --Inside quotes
+        if l_cur_char = chr(39) then
+          l_quoted := false;
+        end if;
+
+      elsif l_brackets = 0 then
+
+        --No brakets, no quotes
+        if l_cur_char = p_open_group_char then
+          if p_break_regexp = '\s+' then
+            --Start new lexem if breaking exp is space
+            start_new_lexem;
+          end if;
+          l_brackets := l_brackets + 1;
+        elsif l_cur_char = chr(39) then
+          l_quoted := true;
+        elsif regexp_like(l_cur_char, p_break_regexp) then
+          start_new_lexem;
+        end if;
+
+
+      elsif l_brackets > 0 then
+
+        --Inside brakets, no quotes
+        if l_cur_char = p_close_group_char then
+          l_brackets := l_brackets - 1;
+        elsif l_cur_char = p_open_group_char then
+          l_brackets := l_brackets + 1;
+        elsif l_cur_char = chr(39) then
+          l_quoted := true;
+        end if;
+
+      end if;
+
+      l_idx := l_idx + 1;
+
+    end loop;
+
+    start_new_lexem;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function parse_constr(p_str varchar2) return constr_def_t
+  is
+    l_res constr_def_t;
+    l_words prv_varchar32k_table_t;
+  begin
+
+    l_words := get_lexems(p_str, '\s+', '(', ')');
+
+    if lower(l_words(1)) = 'constraint' then
+      l_res.name := l_words(2);
+    end if;
+
+    for i in l_words.first .. l_words.last loop
+
+      if l_words.count >= i + 2
+        and lower(l_words(i)) = 'primary'
+        and lower(l_words(i + 1)) = 'key'
+      then
+
+        l_res.col_list := replace(remove_external_brackets(l_words(i + 2)), '"');
+        l_res.type := 'P';
+
+        exit;
+
+      elsif l_words.count >= i + 1
+        and lower(l_words(i)) = 'unique'
+      then
+
+        l_res.col_list := replace(remove_external_brackets(l_words(i + 1)), '"');
+        l_res.type := 'U';
+
+        exit;
+
+      elsif l_words.count >= i + 1
+        and lower(l_words(i)) = 'check'
+      then
+
+        l_res.check_expr := replace(remove_external_brackets(l_words(i + 1)), '"');
+        l_res.type := 'C';
+
+      end if;
+
+
+    end loop;
+
+    return l_res;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function parse_column_definition(p_str varchar2) return column_def_t
+  is
+    l_res       column_def_t;
+    l_words     prv_varchar32k_table_t;
+    l_started   boolean;
+  begin
+
+    l_words := get_lexems(p_str, '\s+', '(', ')');
+
+    l_res.name := ltrim(rtrim(l_words(1), '"'), '"');
+
+    if lower(l_res.name) in ('constraint', 'primary', 'check') then
+      return null;
+    end if;
+
+    if l_words.count < 2 then
+      raise_application_error(-20000, 'Invalid column ' || l_res.name || ' definition: ' || p_str);
+    end if;
+
+
+    --Look for virtual column expression
+    for i in l_words.first .. l_words.last loop
+      if lower(l_words(i)) = 'as' then
+        --Virtual field
+        l_res.virtual := true;
+        l_res.virtual_expression := regexp_replace(regexp_replace(l_words(i + 1), '^\(', '', 1, 1), '\)$', '', 1, 1);
+        exit;
+      end if;
+    end loop;
+
+
+    if l_res.virtual is null then
+
+      l_res.virtual := false;
+      l_res.type := l_words(2);
+
+      --Add all words to type until get one of 'default', 'not', 'null', 'generated', 'always', 'as'
+      if l_words.count >= 3 then
+        for i in 3 .. l_words.last loop
+          exit when lower(l_words(i)) in ('default', 'not', 'null', 'generated', 'always', 'as');
+          l_res.type := l_res.type
+            || case
+              when substr(l_words(i), 1, 1) = '('
+              then l_words(i)
+              else ' ' || l_words(i)
+            end;
+        end loop;
+      end if;
+
+      l_res.nullable := true;
+
+      --Detect not null keyword
+      for i in 2 .. l_words.count - 1 loop
+        --Not null
+        if lower(l_words(i)) = 'not' and  lower(l_words(i + 1)) = 'null' then
+          l_res.nullable := false;
+          exit;
+        end if;
+      end loop;
+
+      --Detect default keyword
+      l_started := false;
+      for i in 2 .. l_words.count loop
+        --Default
+        if lower(l_words(i)) = 'default' then
+          l_started := true;
+          continue;
+        end if;
+
+        exit when lower(l_words(i)) in ('not', 'null');
+
+        if l_started then
+          l_res.def_value := l_res.def_value || l_words(i);
+        end if;
+
+      end loop;
+
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure parse_table_ddl
+  (
+    p_create_table  varchar2,
+    p_table_name    out varchar2,
+    p_temp_table    out boolean,
+    p_column_defs   out column_defs_t,
+    p_constr_defs   out constr_defs_t
+  )
+  is
+    l_column_def    column_def_t;
+    l_constr_def    constr_def_t;
+    l_top_lexems    prv_varchar32k_table_t;
+    l_col_lexems    prv_varchar32k_table_t;
+  begin
+
+    p_temp_table := false;
+
+    --Parse top level words
+    l_top_lexems := get_lexems(p_create_table, '\s+', '(', ')');
+
+    --Checks
+    if l_top_lexems.count = 0 or lower(l_top_lexems(1)) <> 'create' then
+      raise_application_error(-20000, 'Invalid syntax: ' || p_create_table);
+    end if;
+
+    --Detect temporary table
+    if l_top_lexems.count >= 3
+      and lower(l_top_lexems(2)) = 'global'
+      and lower(l_top_lexems(3)) = 'temporary'
+    then
+      p_temp_table := true;
+    end if;
+
+    --Find word table
+    for i in l_top_lexems.first + 1 .. l_top_lexems.last loop
+      if lower(l_top_lexems(i)) = 'table' and l_top_lexems.count >= i + 1 then
+
+        --Get table name
+        p_table_name := l_top_lexems(i + 1);
+
+        --Check if it fully qualified name
+        if instr(p_table_name, '.') > 0 then
+          p_table_name := extract_val(p_table_name, '.', 2);
+        end if;
+
+        --Remove quotes
+        p_table_name := rtrim(ltrim(p_table_name, '"'), '"');
+
+        if l_top_lexems.count >= i + 2 then
+          --Extract column definitions
+          l_col_lexems := get_lexems(remove_external_brackets(l_top_lexems(i + 2)), ',', '(', ')');
+        end if;
+
+        exit;
+      end if;
+    end loop;
+
+    --Check table name
+    if p_table_name is null then
+      raise_application_error(-20000, 'Table name not found in: ' || p_create_table);
+    elsif l_col_lexems.count = 0 then
+      raise_application_error(-20000, 'Column definitions not found in: ' || p_create_table);
+    end if;
+
+
+    --Parse column definitions
+    for i in l_col_lexems.first .. l_col_lexems.last loop
+
+      --Try to parse column definition
+      l_column_def := parse_column_definition(l_col_lexems(i));
+      if l_column_def.name is not null then
+        p_column_defs(p_column_defs.count + 1) := l_column_def;
+        continue;
+      end if;
+
+
+      --Try to parse constraint
+      l_constr_def := parse_constr(l_col_lexems(i));
+      if l_constr_def.name is not null then
+        p_constr_defs(p_constr_defs.count + 1) := l_constr_def;
+
+        --Set nullable field for primary key constraint
+        if l_constr_def.type = 'P' then
+          for j in p_column_defs.first .. p_column_defs.last loop
+            if instr(',' || replace(l_constr_def.col_list, ' ') || ',', ',' || p_column_defs(j).name || ',') > 0 then
+              p_column_defs(j).nullable := false;
+            end if;
+          end loop;
+        end if;
+
+        continue;
+      end if;
+
+    end loop;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_table(p_create_table varchar2, p_skip_constraints boolean := false)
+  is
+    l_table_name    varchar2(60);
+    l_temp_table    boolean;
+    l_column_defs   column_defs_t;
+    l_constr_defs   constr_defs_t;
+    l_grants        dbms_sql.varchar2_table;
+    --
+    procedure enable_aux
+    is
+    begin
+      enable_disable_policies('enable', l_table_name);
+      begin
+        execute immediate 'alter table ' || l_table_name || ' enable all triggers';
+      exception when others then
+        if sqlcode = -30657 then
+          null;
+        else
+          raise;
+        end if;
+      end;
+    end;
+    --
+    procedure disable_aux
+    is
+    begin
+      enable_disable_policies('disable', l_table_name);
+      begin
+        execute immediate 'alter table ' || l_table_name || ' disable all triggers';
+      exception when others then
+        if sqlcode = -30657 then
+          null;
+        else
+          raise;
+        end if;
+      end;
+    end;
+  begin
+    
+    --Parse table DDL
+    parse_table_ddl(p_create_table, l_table_name, l_temp_table, l_column_defs, l_constr_defs);
+
+    -- Check organization external table
+    if regexp_substr(p_create_table, 'organization\s+external') is not null then
+      select
+        lower('grant '||t.privilege||' on '||t.TABLE_SCHEMA||'.'||t.TABLE_NAME||' to '||t.GRANTEE)
+        bulk collect into l_grants
+      from all_tab_privs t
+      where table_name = upper(l_table_name);
+
+      drop_object(l_table_name);
+    end if;
+
+    --Try to create table as is
+    if create_object(rtrim(p_create_table, ';')) then
+      --Table recently created, update of columns not required
+      if l_grants.count > 0 then 
+        for i in l_grants.first .. l_grants.last loop
+          execute immediate l_grants(i);
+        end loop;
+      end if;
+      
+      --Remove constrants
+      if p_skip_constraints then
+        for i in 
+        (
+          select constraint_name
+          from user_constraints
+          where table_name = upper(l_table_name)
+          and generated = 'USER NAME'
+        )
+        loop
+          execute immediate 'alter table ' || l_table_name || ' drop constraint ' || i.constraint_name;
+        end loop;
+      end if;
+      
+      return;
+    end if;
+
+    --Disable aux objects, i.e. VPD policies and trigger
+    disable_aux;
+
+    --Update columns
+    for i in l_column_defs.first .. l_column_defs.last loop
+      prv_inst_utils.update_tab_col
+      (
+        l_table_name,
+        l_column_defs(i).name,
+        l_column_defs(i).type,
+        l_column_defs(i).def_value,
+        case when l_column_defs(i).nullable then 'Y' else 'N' end,
+        l_column_defs(i).virtual_expression
+      );
+    end loop;
+
+    --Update constraints
+    if l_constr_defs.count > 0 and not p_skip_constraints then
+      for i in l_constr_defs.first .. l_constr_defs.last loop
+        prv_inst_utils.update_constraint
+        (
+          l_table_name,
+          l_constr_defs(i).name,
+          l_constr_defs(i).type,
+          l_constr_defs(i).col_list,
+          l_constr_defs(i).check_expr,
+          l_constr_defs(i).ref_expr,
+          l_constr_defs(i).on_delete
+        );
+      end loop;
+    end if;
+
+    --rowdependencies changed
+    if tab_row_level_dep(l_table_name) != sql_row_level_dep(p_create_table) then
+      declare
+        l_int_table_name  varchar2(30) := 'INT_' || substr(l_table_name, 5);
+        l_column_list     varchar2(4000);
+      begin
+
+        --Try to drop int table
+        prv_inst_utils.exec_sql('drop table ' || l_int_table_name || ' cascade constraints', -942);
+        
+        --Create interim table
+        begin
+          update_table(replace(p_create_table, l_table_name, l_int_table_name), true);
+        exception when others then
+          raise_application_error(-20000, 'Replacing table name ' || l_table_name 
+            || ' with ' || l_int_table_name 
+            || ' produced invalid create table statement. Please check create table SQL. Error: ' || sqlerrm);
+        end;
+    
+        select listagg(column_name || ' ' || column_name, ',') within group (order by 1)
+        into l_column_list
+        from user_tab_cols
+        where table_name = upper(l_int_table_name)
+        and virtual_column = 'NO'
+        and hidden_column = 'NO';
+    
+        --redefine_table(l_table_name, l_int_table_name, l_column_list);
+
+      exception when others then
+        raise_application_error(-20000, 'Failed to redefine table: ' || l_table_name || ' due to ' || sqlerrm);
+      end;
+    end if;
+
+    --Enable aux objects, i.e. VPD policies and trigger
+    enable_aux;
+
+    exception when others then
+      --Enable in case of error
+      enable_aux;
+      raise;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_constraint
+  (
+    p_table_name        varchar2,
+    p_constraint_name   varchar2,
+    p_constraint_type   varchar2,
+    p_columns           varchar2,
+    p_check_expression  varchar2,
+    p_reference_expr    varchar2,
+    p_on_delete         varchar2
+  )
+  is
+    l_recreate boolean := true;
+  begin
+
+    if p_constraint_type not in ('R', 'P', 'U', 'C') or p_constraint_type is null then
+      raise_application_error
+      (
+        -20000,
+        'Constraint ' || p_constraint_name || ': parameter p_constraint_type expected R|P|U|C, got ' || p_constraint_type
+      );
+    end if;
+
+    for i in
+    (
+      select c.*,
+        (
+          select listagg(cc.column_name) within group (order by position)
+          from user_cons_columns cc
+          where cc.constraint_name = c.constraint_name
+          and cc.table_name = c.table_name
+        ) column_list,
+        (
+          select r.table_name || ' ('
+            ||
+            (
+              select listagg(cc.column_name) within group (order by position)
+              from user_cons_columns cc
+              where cc.constraint_name = r.constraint_name
+              and cc.table_name = r.table_name
+            ) || ')'
+          from user_constraints r
+          where r.constraint_name = c.r_constraint_name
+        ) reference_expr
+      from user_constraints c
+      where table_name = upper(p_table_name)
+      and constraint_name = upper(p_constraint_name)
+    ) loop
+
+
+      if p_constraint_type = i.constraint_type
+        or
+        (
+          i.constraint_type = 'C'
+          and p_check_expression = substr(i.search_condition, 1, 4000)
+        )
+        or
+        (
+          i.constraint_type in ('P', 'U')
+          and lower(p_columns) = i.column_list
+        )
+        or
+        (
+          i.constraint_type = 'R'
+          and i.delete_rule = upper(p_on_delete)
+          and i.reference_expr = p_reference_expr
+        )
+      then
+
+        l_recreate := false;
+
+      end if;
+
+    end loop;
+
+    if l_recreate then
+
+      drop_object(p_constraint_name);
+      create_object
+      (
+        'alter table ' || p_table_name
+          || ' add constraint ' || p_constraint_name || ' '
+          || case p_constraint_type
+            when 'R' then 'foreign key (' || p_columns || ') references ' || p_reference_expr || ' on delete ' || p_on_delete
+            when 'P' then 'primary key (' || p_columns || ')'
+            when 'U' then 'unique (' || p_columns || ')'
+            when 'C' then 'check (' || p_check_expression || ')'
+          end
+      );
+
+      dbms_output.put_line('Constraint ' || p_constraint_name || ' was recreated');
+
+    else
+
+      dbms_output.put_line('Constraint ' || p_constraint_name || ' is up-to-date');
+
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure create_tablespace(p_tbls_name varchar2, p_logging boolean)
+  is
+    l_logging         varchar2(30) := case when p_logging then 'logging' else 'nologging' end;
+    l_datafile_path   varchar2(1024);
+  begin
+    null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure prv_enable_disable_constr
+  (
+    p_action            varchar2,
+    p_constraint_type   varchar2 default null,
+    p_table_list        varchar2 default null
+  )
+  is
+  begin
+    for cur in
+    (
+      select
+        table_name, constraint_name, constraint_type, status,
+        'alter table ' || table_name || ' ' || p_action ||' constraint ' || constraint_name exec_str
+      from user_constraints
+      where (p_constraint_type is null or constraint_type = p_constraint_type)
+        and status = case when p_action = 'enable' then 'DISABLED' else 'ENABLED' end
+        and (p_table_list is null or instr(',' || p_table_list || ',', ',' || lower(table_name) || ',') > 0)
+      order by
+        case constraint_type
+          when 'C' then 1
+          when 'U' then 2
+          when 'R' then case when p_action = 'enable' then 4 else 3 end
+          when 'P' then case when p_action = 'enable' then 3 else 4 end
+          else 0
+        end
+    )
+    loop
+      begin
+        execute immediate cur.exec_str;
+      exception
+        when others then
+        dbms_output.put_line('Error disable/enable constraint: '|| cur.constraint_name || ': ' || sqlerrm);
+      end;
+    end loop;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure load_data
+  (
+    p_dir_from      varchar2,
+    p_file_from     varchar2,
+    p_column_from   varchar2,
+    p_column_to     varchar2,
+    p_table_to      varchar2,
+    p_drop_file     boolean default true
+  )
+  is
+    l_oracle_dir    varchar2(128) := 'DEFAULT_DIR';
+    l_dir_to        varchar2(4000);
+    l_str           varchar2(1000);
+
+    -----------------------------------------------
+    procedure create_ext_table
+    is
+      l_str   varchar2(4000) := 'create table TMP_EXT_TABLE
+(
+  column01    VARCHAR2(4000),
+  column02    VARCHAR2(4000),
+  column03    VARCHAR2(4000),
+  column04    VARCHAR2(4000),
+  column05    VARCHAR2(4000),
+  column06    VARCHAR2(4000),
+  column07    VARCHAR2(4000),
+  column08    VARCHAR2(4000),
+  column09    VARCHAR2(4000),
+  column10    VARCHAR2(4000),
+  column11    VARCHAR2(4000),
+  column12    VARCHAR2(4000),
+  column13    VARCHAR2(4000),
+  column14    VARCHAR2(4000),
+  column15    VARCHAR2(4000),
+  column16    VARCHAR2(4000),
+  column17    VARCHAR2(4000),
+  column18    VARCHAR2(4000),
+  column19    VARCHAR2(4000),
+  column20    VARCHAR2(4000),
+  column21    VARCHAR2(4000),
+  column22    VARCHAR2(4000),
+  column23    VARCHAR2(4000),
+  column24    VARCHAR2(4000),
+  column25    VARCHAR2(4000),
+  column26    VARCHAR2(4000),
+  column27    VARCHAR2(4000),
+  column28    VARCHAR2(4000),
+  column29    VARCHAR2(4000),
+  column30    VARCHAR2(4000)
+)
+organization external
+(
+  type ORACLE_LOADER
+  default directory DEFAULT_DIR
+  access parameters
+  (
+    RECORDS DELIMITED BY NEWLINE
+    BADFILE DEFAULT_DIR:''TMP_EXT_TABLE.bad''
+    NODISCARDFILE NOLOGFILE
+    FIELDS TERMINATED BY '','' OPTIONALLY ENCLOSED BY ''"''
+    MISSING FIELD VALUES ARE NULL
+  )
+  location (DEFAULT_DIR:'''')
+)
+reject limit UNLIMITED';
+    begin
+      execute immediate 'drop table TMP_EXT_TABLE';
+      execute immediate l_str;
+      exception
+        when others then
+          if sqlcode = -942 then
+            execute immediate l_str;
+          else
+            raise;
+          end if;
+    end;
+
+  begin
+    dbms_output.put_line(to_char(sysdate, 'yyyy.mm.dd hh24:mi:ss')||'   '||'Load data to '||p_table_to);
+    create_ext_table;
+
+    select t.directory_path into l_dir_to from all_directories t where t.directory_name = l_oracle_dir;
+
+    l_str := '
+begin
+  prv_utils.exec_os_command(''cp -a '||p_dir_from||'/'||p_file_from||' '||l_dir_to||'/'||p_file_from||''');
+end;';
+    execute immediate l_str;
+
+    l_str := '
+declare
+  l_file_exists   boolean := false;
+begin
+  l_file_exists := prv_utils.file_exists('''||l_oracle_dir||''', '''||p_file_from||''');
+
+  if l_file_exists = false then
+    raise_application_error(-20000, ''File '|| p_file_from ||' does not exist!'');
+  end if;
+end;';
+    execute immediate l_str;
+
+    execute immediate 'alter table TMP_EXT_TABLE location ('''||p_file_from||''')';
+
+    execute immediate
+'insert into '||p_table_to||'('||p_column_to||')
+select '||p_column_from||' from tmp_ext_table';
+
+    commit;
+
+    if p_drop_file then
+      execute immediate 'alter table TMP_EXT_TABLE location ('''')';
+
+      l_str := '
+begin
+  prv_utils.exec_os_command(''rm -rf '||l_dir_to||'/'||p_file_from||''');
+end;';
+      execute immediate l_str;
+    end if;
+
+    execute immediate 'drop table TMP_EXT_TABLE';
+
+    dbms_output.put_line('Data was successfully loaded to: '|| p_table_to);
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure reset_sequence_for_table(p_tab_name varchar2, p_col_tab_name varchar2, p_seq_name varchar2)
+  is
+    l_col_tab_exist   integer := 0;
+    l_max_val_in_tab  integer := 0;
+    l_current         number := 0;
+    l_difference      number := 0;
+    l_minvalue        user_sequences.min_value%type := 0;
+  begin
+
+    begin
+      select min_value into l_minvalue from user_sequences where sequence_name = upper(p_seq_name);
+    exception
+      when no_data_found then
+        raise_application_error(-20100, 'Sequence does not exists.');
+    end;
+
+    select count(*) into l_col_tab_exist from user_tab_cols
+    where table_name = upper(p_tab_name)
+      and column_name = upper(p_col_tab_name);
+
+    if l_col_tab_exist = 0 then
+      raise_application_error(-20100, 'Table or column does not exists.');
+    end if;
+
+    execute immediate 'select nvl(max('|| (p_col_tab_name) ||'), 0) from '||(p_tab_name) into l_max_val_in_tab;
+
+    execute immediate 'select ' || p_seq_name || '.nextval from dual' into l_current;
+
+    if l_max_val_in_tab < l_minvalue then
+      l_difference := l_minvalue - l_current;
+    else
+      l_difference := l_max_val_in_tab - l_current;
+    end if;
+
+    if l_difference = 0 then
+      return;
+    end if;
+
+    execute immediate 'alter sequence ' || p_seq_name || ' increment by ' || l_difference || ' minvalue ' || l_minvalue;
+
+    execute immediate 'select ' || p_seq_name || '.nextval from dual' into l_difference;
+
+    execute immediate 'alter sequence ' || p_seq_name || ' increment by 1 minvalue ' || l_minvalue;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_type(p_create_type varchar2)
+  is
+    l_exist         number;
+    l_current_type  varchar2(4000);
+    l_create_type   varchar2(4000);
+    l_ref_table     number;
+    l_type_name     varchar2(30);
+    l_top_lexems    prv_varchar32k_table_t;
+    l_diff          varchar2(4000);
+    l_current_sym   varchar2(1);
+    l_create_sym    varchar2(1);
+    l_types         prv_varchar4000_table_t := prv_varchar4000_table_t();
+    -----------------------------------------------
+    function remove_insignificant(p_param varchar2) return varchar2
+    is
+    begin
+      return upper(replace(replace(replace(p_param, ' ', ''), chr(10), ''), chr(9), ''));
+    end;
+    -----------------------------------------------
+    function get_type_text(p_type_name varchar2) return varchar2
+    is
+      l_type_text varchar2(4000);
+    begin
+      select 'create or replace ' || text into l_type_text
+      from
+      (
+        select
+          listagg(replace(replace(text, 'TYPE           ', 'TYPE '), '"', ''), '') within group (order by line) text
+        from user_source t
+        where t.type like 'TYPE'
+          and name = p_type_name
+          and (text not like '%@%$%' and text not like '%SVN%')
+      );
+      return l_type_text;
+    end;
+  begin
+    --Parse top level words
+    l_create_type := regexp_replace(p_create_type, '^['||chr(10)||']|['||chr(13)||']]*', '');
+    l_top_lexems := prv_inst_utils.get_lexems(l_create_type, '\s+', '(', ')');
+
+    -- Check
+    if l_top_lexems.count = 0
+      or
+      (
+        lower(l_top_lexems(1)) <> 'create'
+        and lower(l_top_lexems(2)) <> 'or'
+        and lower(l_top_lexems(3)) <> 'replace'
+        and lower(l_top_lexems(4)) <> 'type'
+      )
+    then
+      raise_application_error(-20000, 'Invalid syntax: ' || p_create_type);
+    else
+      l_type_name := upper(l_top_lexems(5));
+    end if;
+
+    select count(type_name) into l_exist from user_types t where t.type_name = l_type_name;
+
+    if l_exist = 0 then
+      create_object(rtrim(l_create_type, ';'));
+    else
+      l_current_type := upper(get_type_text(l_type_name));
+      l_current_type := remove_insignificant(l_current_type);
+      l_create_type := remove_insignificant(l_create_type);
+
+      for i in 1 .. greatest(length(l_create_type), length(l_current_type)) loop
+        l_current_sym := substr(l_current_type, i, 1);
+        l_create_sym := substr(l_create_type, i, 1);
+        if l_current_sym != l_create_sym then
+          l_diff := l_create_sym;
+          exit;
+        end if;
+      end loop;
+
+      if nvl(l_diff, ';') not in (';', '/') then
+        select count(*) into l_ref_table from user_dependencies t
+          where referenced_name = l_type_name
+          and type = 'TABLE';
+
+        if l_ref_table = 0 then
+          for cur in
+          (
+            select name from user_dependencies t
+            where t.referenced_name like l_type_name
+              and type = 'TYPE'
+          )
+          loop
+            l_types.extend;
+            l_types(l_types.count) := get_type_text(cur.name);
+            prv_inst_utils.exec_sql('drop type ' || cur.name, '-4043,-22866');
+          end loop;
+          l_create_type := regexp_replace(p_create_type, '^['||chr(10)||']|['||chr(13)||']]*', '');
+          create_object(rtrim(l_create_type, ';'));
+          if l_types.count > 0 then
+            for i in l_types.first .. l_types.last loop
+              create_object(rtrim(l_types(i), ';'));
+            end loop;
+            l_types.delete;
+          end if;
+        end if;
+      end if;
+    end if;
+  exception
+    when others then
+      if l_types.count > 0 then
+        for i in l_types.first .. l_types.last loop
+          create_object(rtrim(l_types(i), ';'));
+        end loop;
+        l_types.delete;
+      end if;
+      raise;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_prv_db_comments_history(p_patch_num varchar2)
+  is
+  begin
+    execute immediate '
+merge into prv_db_comments_history t
+using
+(
+  select :p_patch_num as pn, table_name, column_name, data_type, data_length, nullable, comments
+  from prv_db_comments_v
+) s
+  on (t.pn = s.pn and t.table_name = s.table_name and t.column_name = s.column_name)
+when matched then
+  update set
+    t.data_type = s.data_type,
+    t.data_length = s.data_length,
+    t.nullable = s.nullable,
+    t.comments = s.comments
+when not matched then
+  insert(t.pn, t.table_name, t.column_name, t.data_type, t.data_length, t.nullable, t.comments)
+  values(s.pn, s.table_name, s.column_name, s.data_type, s.data_length, s.nullable, s.comments)'
+    using p_patch_num;
+
+    execute immediate '
+delete from prv_db_comments_history
+where pn = :p_patch_num
+  and (table_name, column_name) not in (select table_name, column_name from prv_db_comments_v)'
+    using p_patch_num;
+
+    commit;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_sys_version(p_patch_num varchar2, p_build_num varchar2)
+  is
+    l_inv_obj_cnt number;
+  begin
+    select count(*) into l_inv_obj_cnt from user_objects where status = 'INVALID';
+
+    if l_inv_obj_cnt = 0 then
+      dbms_output.put_line('No invalid objects found. Patch successfully installed.');
+      execute immediate '
+begin
+  prv_utils.update_param(''PARAM-SYS-VERSION'', :p_patch_num);
+  prv_utils.update_param(''PARAM-SYS-BUILD_NUM'', :p_build_num);
+end;'
+      using p_patch_num, p_build_num;
+
+      commit;
+    else
+      dbms_output.put_line('Patch installation failed. Invalid objects found:');
+      for i in
+      (
+        select object_name from user_objects
+        where status = 'INVALID'
+      )
+      loop
+        dbms_output.put_line(i.object_name);
+      end loop;
+    end if;
+  end;
+  -------------------------------------------------------------------------------------------------
+  procedure dump_fragile_report_list(p_exec varchar2 := null)
+  is
+    l_file_name   varchar2(256);
+    l_file_path   varchar2(256);
+    l_file        utl_file.file_type;
+    l_report_tab  sys.dbms_debug_vc2coll;
+    l_sql         varchar2(32767);
+  begin
+
+    select
+      'fragile_report_' || to_char(systimestamp, 'YYYYMMDDHH24MISSxFF') || '.log' file_name,
+      t.directory_path || '/' file_path
+    into l_file_name, l_file_path
+    from all_directories t
+    where t.directory_name = 'DEFAULT_DIR';
+
+    if p_exec is null then
+
+      l_sql := 'select report_name
+        from rpt_report
+        where (lower(report_sql) like ''%sms_cube%'' or lower(report_sql) like ''%sta_cube%'')
+          and regexp_like(report_sql, ''group_id\s*(=|in)\s*\(?[0-9]+'', ''i'')';
+
+    else
+
+      l_sql := p_exec;
+
+    end if;
+
+    execute immediate l_sql bulk collect into l_report_tab;
+
+    if l_report_tab.count > 0 then
+
+      l_file := utl_file.fopen('DEFAULT_DIR', l_file_name, 'w');
+
+      for i in l_report_tab.first .. l_report_tab.last
+      loop
+        utl_file.put
+        (
+          l_file,
+          'Report "' || l_report_tab(i) || '" is potentially fragile' || chr(10)
+        );
+      end loop;
+
+      utl_file.fclose(l_file);
+      dbms_output.put_line('Potentially fragile reports found. More info in file '|| l_file_path || l_file_name);
+
+    end if;
+
+  exception
+
+    when others then
+      utl_file.fclose(l_file);
+      raise;
+
+  end;
+  ---------------------------------------------------------------------------------------------------------------------
+  function get_invalid_object return sys_refcursor
+  is
+    l_cur sys_refcursor;
+  begin
+    open l_cur for
+    select object_name, object_type
+    from all_objects
+      where owner = 'INVOICE'
+      and status != 'VALID'
+    order by object_type, object_name;
+    return l_cur;
+  end;
+  ---------------------------------------------------------------------------------------------------------------------
+  function get_job_status return number
+  is
+    l_cnt number;
+  begin
+    select count(*) into l_cnt from all_scheduler_jobs t
+    where owner = 'INVOICE'
+      and enabled = 'TRUE';
+
+    return l_cnt;
+  end;
+  ---------------------------------------------------------------------------------------------------------------------
+  procedure rename_param(p_old varchar2, p_new varchar2, p_safe boolean := false)
+  is
+    c_old constant varchar2(256) := upper(p_old);
+    c_new constant varchar2(256) := upper(p_new);
+    c_grp varchar2(256) := regexp_substr(c_new, '[^\-]+');
+    --
+    l_cnt number;
+  begin
+
+    if p_safe then
+
+      select count(*) into l_cnt from user_source where text like '%' || c_old || '%';
+
+      if l_cnt > 0 then
+        raise_application_error(-20000, 'Parameter ' || c_old || ' is probably in use');
+      end if;
+
+      execute immediate 'select count(*) from prv_message where message_code = :c_grp' into l_cnt using c_grp;
+
+      if l_cnt = 0 then
+        raise_application_error(-20001, 'Parameter group ' || c_grp || ' does not exist');
+      end if;
+
+    end if;
+
+    execute immediate 'update prv_param set param_code = :c_new where param_code = :c_old' using c_new, c_old;
+    execute immediate 'update prv_message set message_code = :c_new where message_code = :c_old' using c_new, c_old;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure set_nls_format
+  is
+  begin
+    execute immediate 'alter session set nls_territory = ''UNITED KINGDOM''';
+    execute immediate 'alter session set nls_date_format=''YYYY.MM.DD HH24:MI:SS''';
+    execute immediate 'alter session set nls_currency=''$''';
+    execute immediate 'alter session set nls_numeric_characters = ''. ''';
+  end;
+end;
+/

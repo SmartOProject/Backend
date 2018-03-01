@@ -1,0 +1,4308 @@
+﻿create or replace package prv_utils is
+
+  --Package variables are not allowed here due to keep it stateless
+
+  type param_t is table of varchar2(4000) index by varchar2(4000);
+  
+  function get_key(p_json varchar2, p_key varchar2) return varchar2;
+  function json2param(p_json varchar2) return prv_utils.param_t;
+  function validate_value(p_validation_json varchar2, p_value varchar2) return varchar2;
+  function get_all_properties(p_json varchar2) return prv_abstract_table_t;
+  function str2plsqltable(p_str varchar2, p_separator varchar2) return dbms_sql.varchar2_table;
+  function java_get_array(p_json varchar2) return prv_varchar4000_table_t;
+  function extract_val(p_str varchar2, p_sep char, p_position pls_integer) return varchar2;
+  function param2json
+  (
+    p_names               dbms_sql.varchar2_table,
+    p_values              dbms_sql.varchar2_table,
+    p_max_size            number := 4000,
+    p_raise_overflow_ex   boolean := true,
+    p_exclude_param_list  varchar2 := null
+  )
+  return varchar2;
+
+  function get_timestamp_diff(p_start_timestamp timestamp, p_end_timestamp timestamp) return number deterministic;
+
+  function param2json(p_param param_t, p_json_values boolean := false) return varchar2;
+  
+  
+/*
+  --Constant getters
+  function c_traffic_alert_type_id  return number;
+  function c_other_alert_type_id    return number;
+  --Alert status
+  function c_new_alert_status_id    return number;
+  function c_error_alert_type_id    return number;
+  --Alert severity
+  function c_severity_low           return number;
+  function c_severity_normal        return number ;
+  function c_severity_high          return number;
+  --Job status
+  function c_job_new        return number;
+  function c_job_done       return number;
+  function c_job_failed     return number;
+  function c_job_aborted    return number;
+  function c_job_scheduled  return number;
+  function c_job_pending    return number;
+  function c_job_waiting    return number;
+  --Debug type
+  function c_debug_info     return varchar2;
+  function c_debug_warning  return varchar2;
+  function c_debug_error    return varchar2;
+  --
+  function c_session_expire_ctx  return varchar2;
+  --
+  procedure check_license;
+  function get_dbid return number result_cache;
+  function get_param_rec(p_code varchar2) return prv_param%rowtype;
+  function get_param(p_code varchar2) return varchar2 result_cache;
+  function get_signed_param_list return prv_varchar30_table_t;
+  function get_random_string(p_length number) return varchar2;
+  --
+  procedure set_lang(p_lang varchar2);
+  function  get_lang return varchar2;
+  --
+  function get_sys_tz_offset return varchar2;
+  procedure set_nls_date_format;
+  --
+  procedure refresh_job_states;
+  procedure update_param
+  (
+    p_code            varchar2,
+    p_value           varchar2,
+    p_is_editable     number := null,
+    p_is_hidden       number := null,
+    p_is_public       number := null,
+    p_validation_json varchar2 := null
+  );
+  procedure update_param_values(p_codes dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table);
+  procedure delete_param(p_code varchar2);
+  / **
+  * Получение списка настраиваемых параметров системы
+  * @return
+  *     <ol>
+  *         <li/>'PARAM_CODE', // Уникальное имя (id) параметра
+  *         <li/>'PARAM_VALUE', // Значение параметра. Все парольные параметры забиваются звёздочками, т.к. этот метод вызывается для отображения системных параметров в интерфейсе. Для получения значения этих параметров следует использовать <a href='#get_param%28varchar2%29'>prv_api.get_param</a>
+  *         <li/>'PARAM_IS_EDITABLE', // Флаг возможности редактирования (0-нет; 1-да)
+  *         <li/>'PARAM_GROUP', // Название группы, куда входит параметр
+  *         <li/>'PARAM_CAPTION' // Название параметра
+  *         <li/>'SIGNED' //Флаг подписаный ли параметр. 1 - подписан, 0 - не подписан, null - не требует подписи
+  *     </ol>
+  * /
+  function get_param_list return sys_refcursor;
+
+  / **
+  * Получение списка публичных параметров системы
+  * @return
+  *     <ol>
+  *         <li/>'param_code', // Уникальное имя (id) параметра
+  *         <li/>'param_value' // Значение параметра. Все парольные параметры забиваются звёздочками, т.к. этот метод вызывается для отображения системных параметров в интерфейсе. Для получения значения этих параметров следует использовать <a href='#get_param%28varchar2%29'>prv_api.get_param</a>
+  *     </ol>
+  * /
+  function get_public_param_list return sys_refcursor;
+
+  --
+  procedure set_context_var(p_parameter in varchar2,p_value in varchar2);
+  function  get_context_var(p_parameter in varchar2) return varchar2;
+
+  procedure save_debug_transact(p_source varchar2, p_message varchar2, p_type varchar2 default c_debug_info);
+  / **
+  * Процедура сохранения записей в журнале событий
+  * @param p_source модуль, который пишет логи. В поле допустимы произвольные названия. Сейчас используются: 'Mail client'; 'Auto rate import'
+  * @param p_message сообщение, которое должно быть сохранено. Внутри сообщения приветствуется использование тегов вида: [EMAIL=_ID_письма_][FILE=_ID_файла]
+  * @param p_type ['Info', 'Warning', 'Error'] - уровень ошибки
+  * /
+  procedure save_debug(p_source varchar2, p_message varchar2, p_type varchar2 default c_debug_info);
+  procedure add_alert(p_alert_info varchar2, p_alert_dcheck date,
+                      p_alert_blob blob, p_alert_blob_filename varchar2,
+                      p_alert_status_id number, p_alert_sent number,
+                      p_alert_type_id number, p_alert_details varchar2,
+                      p_alert_severity number);
+  / **
+  * Отправка алертов на email который указан в параметре "PARAM-SUPPORT-EMAIL"
+  * @param p_alert_info текст сообщения,
+  * @param p_alert_email email (необязательный параметр) по умолчанию отправляется на адрес из параметра "PARAM-SUPPORT-EMAIL"
+  * @param p_alert_blob бинарник файла (необязательный параметр),
+  * @param p_alert_blob_filename название файла в письме (необязательный параметр),
+  * @param p_alert_subject тама сообщения (необязательный параметр) по умолчанию заполняется строкой: имя владельца системы(FIN-SYSTEM-OWNER-NAME) версия системы (PARAM-SYS-VERSION) и системная дата\время
+  * /
+  procedure send_alert
+  (
+    p_alert_info          varchar2,
+    p_alert_email         varchar2 := null,
+    p_alert_blob          blob := null,
+    p_alert_blob_filename varchar2 := null,
+    p_alert_subject       varchar2 := null
+  );
+
+  function get_message
+  (
+    p_message_code  varchar2,
+    p_param1        varchar2 := null,
+    p_param2        varchar2 := null,
+    p_param3        varchar2 := null,
+    p_param4        varchar2 := null,
+    p_param5        varchar2 := null,
+    p_param6        varchar2 := null,
+    p_param7        varchar2 := null,
+    p_param8        varchar2 := null,
+    p_param9        varchar2 := null,
+    p_param10       varchar2 := null,
+    p_default_lang  varchar2 := 'ENG',
+    p_user_lang     varchar2 := sys_context('prv_ctx', 'user_lang')
+  )
+  return varchar2 result_cache;
+
+  / **
+  * Получение списка переводов зарегистрированных в системе
+  * @param p_names Параметры:
+  *   <ul>
+  *     <li/>'pattern', // маская поиска по коду сообщения
+  *     <li/>'lang' //язык, на котором будет возвращены сообщения
+  *     <li/>'full' //1 - значит что вернутся все переводы перемноженные на языки
+  *   </ul>
+  * @return
+  *   <ol>
+  *     <li/>'message_code', // (для опции full=0)
+  *     <li/>'message_text', // (для опции full=0)
+  *   </ol>
+  *   <ol>
+  *     <li/>'message_code', // (для опции full=1)
+  *     <li/>'message_lang', // (для опции full=1)
+  *     <li/>'message_text'  // (для опции full=1)
+  *   </ol>
+  * /
+  function get_message_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+  function get_lang_list return sys_refcursor;
+
+  / **
+  * Обновление перевода
+  *
+  * @param p_names Параметры:
+  *   <ul>
+  *     <li/>'message_code', // код сообщения
+  *     <li/>'text' // текст сообщения (если текст пустой, а код и язык нет - то перевод будет удален.
+  *     <li/>'lang' // язык сообщения
+  *   </ul>
+  * /
+  procedure update_message(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table);
+  procedure update_message(p_message_code varchar2, p_text varchar2, p_lang varchar2:=null);
+  --
+  function translate_error_msg(p_error_msg varchar2) return varchar2;
+  procedure update_error_msg(p_error_code varchar2, p_error_pattern varchar2, p_error_message varchar2 default null, p_lang varchar2 default null);
+  --
+
+  function md5(p_text varchar2) return varchar2;
+  function md5clob(p_clob clob) return varchar2 as
+    language java name 'com.alarislabs.Utils.getMD5(oracle.sql.CLOB) return java.lang.String';
+  --
+  function ip2num(p_ip varchar2) return number;
+  function num2ip(p_num number) return varchar2;
+  function netsize2num(p_size number) return number;
+  function overlap(p_ip1 varchar2,p_size1 number,p_ip2 varchar2,p_size2 number) return number;
+  function hex2bin(p_hex varchar2) return varchar2;
+  --
+  function str2table(p_str varchar2, p_separator varchar2) return prv_varchar4000_table_t;
+  function str2ntable(p_str varchar2, p_separator varchar2) return prv_number_table_t;
+  function str2plsqltable(p_str varchar2, p_separator varchar2) return dbms_sql.varchar2_table;
+  function str2plsqlnumtable(p_str varchar2, p_separator varchar2) return dbms_sql.number_table;
+  --
+  function eval_exp(p_exp varchar2) return varchar2;
+  --
+  / **
+  * Получение списка шаблонов
+  * @param p_names массив имен параметров (макс 4000 символов)
+  *     <ul>
+  *         <li/>template_namespace
+  *         <li/>param_name
+  *     </ul>
+  * @param p_values массив значений параметров (макс 4000 символов)
+  * @return
+  *     <ol>
+  *         <li/>'template_id', // ID шаблона
+  *         <li/>'template_name', // имя шаблона
+  *         <li/>'param_value' // значение первого параметра данного шаблона (для убыстрения извлечения данных, когда в шаблоне 1 элемент)
+  *     </ol>
+  * /
+  function get_template_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+
+  / **
+  * Сохранение шаблона
+  * @param p_names массив имен параметров (макс 4000 символов)
+  *   <ul>
+  *     <li/>template_namespace пространство имен,
+  *     <li/>template_name имя шаблона
+  *   </ul>
+  * @param p_values массив значений параметров (макс 4000 символов)
+  * /
+  procedure save_template(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table);
+  
+  / **
+  * Извлечение данных шаблона
+  * @param p_names массив имен параметров (макс 4000 символов)
+  *   <ul>
+  *     <li/>template_namespace,
+  *     <li/>template_name
+  *   </ul>
+  * @param p_values массив значений параметров (макс 4000 символов)
+  * @return
+  *   <ol>
+  *     <li/>'param_name',
+  *     <li/>'param_value'
+  *   </ol>
+  * /
+  function get_template_content_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+
+  function get_template_param_val(p_template_namespace varchar2,
+                          p_template_name varchar2,
+                          p_param_name varchar2) return varchar2;
+  function get_template_param_val_cnt(p_template_namespace varchar2,
+                                    p_param_name varchar2,
+                                    p_param_value varchar2) return number;
+  / **
+  * Удаление шаблона
+  * /
+  procedure delete_template(p_template_namespace varchar2,
+                            p_template_name varchar2);
+  --
+  / **
+  * Конвертер шаблонов из типа 'rate-import' в тип 'rate-import2'
+  * @param p_json_params, // Шаблон типа rate-import
+  * @return // Шаблон типа rate-import2
+  * /
+  function convert_template(p_json_params clob) return clob as
+  language java name 'com.alarislabs.RateTemplateConverter.convert(oracle.sql.CLOB) return oracle.sql.CLOB';
+  / **
+  * Метод на вход принимает id шаблона (тип шаблона должен быть только rate-import), создаёт с тем же именем шаблон с типом rate-import2 
+  * @param p_template_id, // id шаблона
+  * /
+  procedure convert_template(p_template_id number);
+  --
+  / **
+  * Получение списка CLOB шаблонов
+  * @param p_names Параметры:
+  * <ul>
+  *   <li/>template_namespace - тип шаблона (если тип 'rate-import2' то возвращаются два типа 'rate-import', 'rate-import2')
+  * </ul>
+  * @return
+  *     <ol>
+  *         <li/>'template_id', // id шаблона
+  *         <li/>'template_name' // имя шаблона
+  *         <li/>'template_namespace' // тип шаблона
+  *     </ol>
+  * /
+  function get_clob_template_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+  / **
+  * Сохранение CLOB шаблона
+  * @param p_names Имена параметров.
+  * <ul>
+  *   <li/>'template_namespace', // неймспейс
+  *   <li/>'template_name' // Имя шаблона
+  * </ul>
+  * @param p_template_content // Передаётся BLOB, конвертируется в CLOB внутри метода для сохранения в базу
+  * /
+  procedure save_clob_template
+  (
+    p_names             dbms_sql.varchar2_table,
+    p_values            dbms_sql.varchar2_table,
+    p_template_content  blob
+  );
+  / **
+  * Получение содержимого CLOB шаблона
+  * @return
+  *     <ol>
+  *         <li/>'TEMPLATE_NAMESPACE',
+  *         <li/>'TEMPLATE_NAME', // имя шаблона
+  *         <li/>'TEMPLATE_ID' // ID шаблона
+  *     </ol>
+  * /
+  function get_clob_template(p_names  dbms_sql.varchar2_table,
+                             p_values dbms_sql.varchar2_table) return clob;
+  / **
+  * Удаление CLOB шаблона
+  * /
+  procedure delete_clob_template(p_template_namespace varchar2,
+                          p_template_name varchar2);
+  --
+  function table2str(p_array prv_varchar256_table_t, p_sep varchar2) return varchar2;
+  function table2str(p_array prv_number_table_t, p_sep varchar2) return varchar2;
+  function table4k2str(p_array prv_varchar4000_table_t, p_sep varchar2) return varchar2;
+  function cast_plsqltable2table(p_array dbms_sql.number_table) return prv_number_table_t;
+  function cast_plsqltable2table(p_array dbms_sql.varchar2_table) return prv_varchar4000_table_t;
+  function cast_table2plsqltable(p_array prv_varchar4000_table_t) return dbms_sql.varchar2_table;
+  function cast_numtable2plsqlnumtable(p_array prv_number_table_t) return dbms_sql.number_table;
+  function cast_plsqltable2str(p_array dbms_sql.varchar2_table, p_sep varchar2 default ',') return varchar2;
+  function cast_plsqltable2str(p_array dbms_sql.number_table, p_sep varchar2 default ',') return varchar2;
+  --
+  function clob2blob(l_clob clob) return blob;
+  function blob2clob(p_blob blob) return clob;
+  function bfile2clob(p_bfile in out bfile, p_amount number) return clob;
+  procedure blob2file(p_file_content blob,p_file_name varchar2,p_file_dir varchar2 default 'DEFAULT_DIR');
+  procedure clob2file(p_file_content clob,p_file_name varchar2,p_file_dir varchar2 default 'DEFAULT_DIR');
+  function file2blob(p_filename varchar2,p_file_dir varchar2 default 'DEFAULT_DIR') return blob;
+  --
+  function gen_job_name return varchar2;
+  procedure start_task
+  (
+    p_action        varchar2,
+    p_task_name     varchar2,
+    p_start_date    date default sysdate,
+    p_task_type_id  number default null,
+    p_param_json    varchar2 default null,
+    p_status        number default null,
+    p_enabled       boolean default true,
+    p_max_threads   number := null
+  );
+  procedure add_job2chain(p_task_type_id number, p_task_name varchar2, p_max_threads number);
+  procedure run_chain(p_task_type_id number, p_slot_num number); 
+  function get_task_rec(p_task_name varchar2, p_timeout number := null) return prv_task%rowtype;
+
+  function get_session_cpu_used return number;
+
+  / **
+  * Создание и обновление таска
+  * @param p_names параметры фильтрации. Возможные значения:
+  * <ul>
+  *   <li/>'task_name', // уникальное имя задачи. Если был передан null, то будет создана новая запись.
+  *   <li/>'status', // статус задачи 1-new; 0-done; 2-failed; 3-aborted;
+  *   <li/>'result', // строковые данные о статусе
+  *   <li/>'type_id', // тип задачи см. справочник PRV_TASK_TYPE
+  *   <li/>'param_json' // json, который содержит параметры запуска таска
+  * </ul>
+  * @return task_name - Имя таска
+  * /
+  function update_task(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return varchar2;
+
+  / **
+  * Редактирует/Создает запись в базе о задаче<br/>
+  * <font color="red">Не вызывается из интерфейса!</font>
+  * @param p_task_name уникальное имя задачи. Если был передан null, то будет создана новая запись.
+  * @param p_status статус задачи 1-new; 0-done; 2-failed; 3-aborted;
+  * @param p_result строковые данные о статусе
+  * @param p_type_id тип задачи см. справочник PRV_TASK_TYPE
+  * @param p_param_json json, который содержит параметры запуска таска
+  * /
+  procedure update_task
+  (
+    p_task_name         varchar2,
+    p_status            number,
+    p_result            varchar2,
+    p_type_id           number default null,
+    p_param_json        varchar2 default null,
+    p_update_app_info   boolean default true,
+    p_start_time        date := null
+  );
+  function get_task_param(p_task_name varchar2) return prv_utils.param_t;
+  procedure init_task_env(p_task_name varchar2);
+  / **
+  * Получения статуса задачи
+  * @param p_names параметры фильтрации. Возможные значения:
+  *     <ul>
+  *       <li/>'task_job_name' // Имя таска
+  *     </ul>
+  * @return Курсор со следующими полями:
+  *     <ol>
+  *         <li/>'task_status', // код статуса таска
+  *           <ol>
+  *             <li value='1'>new
+  *             <li value='0'>done
+  *             <li value='2'>failed
+  *             <li value='3'>aborted
+  *             <li value='4'>scheduled
+  *             <li value='5'>pending
+  *             <li value='6'>waiting
+  *           </ol>
+  *         <li/>'task_result', // поле, в которое возвращается результат выполнения таска (в зависимости от типа таска, там может быть прогресс или путь до файла)
+  *         <li/>'task_last_update_time', // дата последнего обновления состояния таска
+  *         <li/>'task_param_json', // параметры запуска задания в json
+  *         <li/>'task_start_time' // дата запуска таска на выполнение (иногда это не дата создания таска, например, если таск создан в статусе pending)
+  * /
+  function check_task(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+  / **
+  * Отменяет выполняемую задачу
+  * /
+  procedure abort_task(p_task_name varchar2);
+  / **
+  * Получение списка длительных заданий
+  * @param p_names параметры фильтрации, сортировки и пагинации. Возможные значения:
+  *   <ul>
+  *     <li/>'task_job_name', // ID таска, это же значение является именем запущенной job'ы
+  *     <li/>'task_type_id', // Идентификатор типа таска. Возможные значения:
+  *       <ol>
+  *         <li value='1'/>CDR rerating
+  *         <li value='2'/>CDR export
+  *         <li value='3'/>Rate export
+  *         <li value='4'/>Report
+  *         <li value='5'/>Rate analisys
+  *         <li value='6'/>CDR recalculation
+  *         <li value='7'/>CDR reconcialtion
+  *         <li value='8'/>Rate generation
+  *         <li value='9'/>Call simulation
+  *         <li value='10'/>SMS simulation
+  *         <li value='11'/>SMS recalculation
+  *         <li value='12'/>SMS rate export
+  *         <li value='13'/>Client portal CDR export
+  *         <li value='14'/>Invoice export
+  *         <li value='15'/>Charge details comparison
+  *         <li value='16'/>SMS reconcialation
+  *         <li value='17'/>EDR export
+  *         <li value='18'/>SMS reference book update
+  *         <li value='19'/>SMS rate import
+  *         <li value='20'/>Analytics CDR export
+  *         <li value='21'/>SMS retail EDR export
+  *         <li value='22'/>Auto import
+  *         <li value='23'/>Trace analyzer
+  *         <li value='24'/>Invoice confirmation
+  *         <li value='1001'/>Viber User Activation
+  *         <li value='1002'/>Beltelecom CDR search
+  *       </ol>
+  *     <li/>'task_status_id', // Код статуса таска. Возможные значения:
+  *       <ol>
+  *         <li value='1'>new
+  *         <li value='0'>done
+  *         <li value='2'>failed
+  *         <li value='3'>aborted
+  *         <li value='4'>scheduled // (для отложенного запуска тасков)
+  *         <li value='5'>pending // (для отложенного запуска тасков с контролем загрузки системы)
+  *         <li value='6'>waiting // ожидание решения со стороны пользователя
+  *       </ol>
+  *     <li/>'user_name', // Имя пользователя, инициировавшего таск, либо 'Autorerating' для тасков SMS авторерейтинга (11)
+  *     <li/>'first_rec',
+  *     <li/>'rec_count',
+  *     <li/>'task_start_time1', // нижняя граница времени запуска
+  *     <li/>'task_start_time2', // верхняя граница времени запуска
+  *     <li/>'task_last_update_time1', // нижняя граница последнего времени обновления
+  *     <li/>'task_last_update_time2', // верхняя граница последнего времени обновления
+  *     <li/>'orderby_clause', // Выражение для сортировки. Можно сортировать по любому набору полей возвращаемого курсора. Значение по умолчанию - 'task_last_update_time desc'.
+  *     <li/>'json_%' // JSON-параметры фильтрации. Представляют собой строку - имя параметра плюс префикс 'json_'. Например, 'json_autorerating' для JSON-параметра 'autorerating'.<br/>
+  *                   // Фильтрация идёт либо на точное совпадение, либо на одно значение из списка, разделённого запятой. Примеры:<br/>
+  *                   // 'json_autorerating', соответствующее значение в p_values='1'. Найдёт таски, где строка JSON-параметров содержит "autorerating":"1".<br/>
+  *                   // 'json_product_ids', соответствующее значение в p_values='10042'. Найдёт таски, например, 'product_ids':"10042", "product_ids:1245,10042".
+  *   </ul>
+  * @param p_values Значения параметров
+  * @return
+  *   <ol>
+  *     <li/>'task_job_name', // внутреннее имя таска (идентификатор)
+  *     <li/>'task_type_id', // тип таска (см. ниже)
+  *     <li/>'task_type_name', // имя типа таска, понятное для пользователя
+  *     <li/>'task_last_update_time', // дата последнего обновления таска
+  *     <li/>'task_result', // результат работы таска (то же самое, что возвращает процедура check_task)
+  *     <li/>'task_status', // код статуса таска (расшифровка статусов приведена в task_status_id в разделе Parameters)
+  *     <li/>'task_param_json', // параметры запуска задания в json
+  *     <li/>'user_name', // имя пользователя запустившего таск
+  *     <li/>'task_start_time', // дата запуска таска - когда был запущен, или, для pending тасков, когда планируется к запуску
+  *     <li/>'user_id_list', // список (через запятую) id пользователей тасков заказанного (в параметре task_type_id) типа. Первым значением идёт id работающего с интерфейсом пользователя. На список не влияют остальные параметры фильтрации.
+  *     <li/>'cnt' // количество записей
+  *   </ol>
+  * /
+  function get_task_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+  --
+  procedure cleanup_scheme;
+  --
+  procedure init_params
+  (
+    p_param in out nocopy prv_utils.param_t,
+    p_param_str varchar2,
+    p_use_not_exists_val boolean := null
+  );
+  function transform_params
+  (
+    p_names dbms_sql.varchar2_table,
+    p_values dbms_sql.varchar2_table,
+    p_not_mandatory_params varchar2 default null,
+    p_use_not_exists_val boolean := null
+  )
+  return param_t;
+  procedure transform_params(p_param prv_utils.param_t,
+                            p_names out dbms_sql.varchar2_table,
+                            p_values out dbms_sql.varchar2_table);
+  function extract_from_json(p_json varchar2, p_param_name varchar2) return varchar2;
+  function json2param(p_json varchar2) return prv_utils.param_t;
+  function java_array2json_clob(p_dbarray prv_varchar4000_table_t) return clob as
+    language java name 'com.alarislabs.Utils.array2jsonClob(oracle.sql.ARRAY) return oracle.sql.CLOB';
+  function java_array2json_string(p_dbarray prv_varchar4000_table_t) return varchar2 as
+    language java name 'com.alarislabs.Utils.array2jsonString(oracle.sql.ARRAY) return oracle.lang.String';
+  --
+  function get_key(p_json varchar2, p_key varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.getKey(java.lang.String,java.lang.String) return java.lang.String';
+  function java_add2json(p_json_object varchar2, p_property varchar2, p_json_element varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.add(java.lang.String,java.lang.String,java.lang.String) return java.lang.String';
+  function java_remove_json_key(p_json_object varchar2, p_key varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.removeKey(java.lang.String,java.lang.String) return java.lang.String';
+  function java_get_array(p_json CLOB) return prv_varchar4000_table_t as
+    language java name 'com.alarislabs.Utils.getArray(oracle.sql.CLOB) return oracle.sql.ARRAY';
+  function get_array_length(p_json varchar2) return number as
+    language java name 'com.alarislabs.Utils.getArrayLength(java.lang.String) return int';
+  function get_array_element(p_json varchar2, p_index number) return varchar2 as
+    language java name 'com.alarislabs.Utils.getArrayElement(java.lang.String,int) return java.lang.String';
+  function get_all_properties(p_json varchar2) return prv_abstract_table_t as
+    language java name 'com.alarislabs.Utils.getAllProperties(java.lang.String) return oracle.sql.ARRAY';
+  function java_collect_values(l_property_name varchar2, l_json clob)  return prv_varchar4000_table_t as
+    language java name 'com.alarislabs.Utils.javaCollectValues(java.lang.String, oracle.sql.CLOB) return oracle.sql.ARRAY';
+  function java_get_simple_json(p_key varchar2, p_values varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.getSimpleJsonObject(java.lang.String, java.lang.String) return java.lang.String';
+  --
+  function blob_compress(p_source_blob blob, p_source_file_name varchar2) return blob as
+    language java name 'com.alarislabs.ZipPacker.compressBlob(oracle.sql.BLOB, java.lang.String) return oracle.sql.BLOB';
+  procedure file_compress (p_in_file varchar2, p_out_file varchar2) as
+    language java name 'com.alarislabs.ZipPacker.compressFile(java.lang.String, java.lang.String)';
+  procedure add_file_to_archive(p_blob_to_add blob, p_file_name varchar2) as
+    language java name 'com.alarislabs.ZipPacker.addFileToArchive(oracle.sql.BLOB, java.lang.String)';
+  function get_final_archive return blob as
+    language java name 'com.alarislabs.ZipPacker.getFinalArchive() return oracle.sql.BLOB';
+  --
+  function get_env(p_env_name varchar2) return varchar2;
+  procedure exec_os_command(p_command varchar2);
+  function exec_os_command(p_command varchar2) return varchar2;
+  function exec_os_command(p_command varchar2, p_oracle_home varchar2) return varchar2 as
+    language java name 'com.alarislabs.OsCommands.execCmd(java.lang.String, java.lang.String) return String';
+  function run_shell_script(p_script varchar2) return varchar2;
+  procedure write_file (p_filename varchar2, p_file_content blob) as
+    language java name 'com.alarislabs.OsCommands.writeFile(java.lang.String, oracle.sql.BLOB)';
+  function read_file (p_filename varchar2) return blob as
+    language java name 'com.alarislabs.OsCommands.readFile(java.lang.String) return oracle.sql.BLOB';
+  procedure delete_file (p_filename varchar2) as
+    language java name 'com.alarislabs.OsCommands.deleteFile(java.lang.String)';
+  function get_file_list(p_dir_name varchar2) return prv_varchar256_table_t as
+    language java name 'com.alarislabs.OsCommands.getFileList(java.lang.String) return oracle.sql.ARRAY';
+  function file_exists(p_dir varchar2, p_filename varchar2) return boolean;
+  function file_exists(p_filepath varchar2) return boolean as
+    language java name 'com.alarislabs.OsCommands.fileExists(java.lang.String) return java.lang.Boolean';
+  function java_get_file_timestamp(p_filepath varchar2) return date as
+    language java name 'com.alarislabs.OsCommands.getFileTimestamp(java.lang.String) return oracle.sql.DATE';
+  procedure save_url(p_filepath varchar2, p_url varchar2) as
+    language java name 'com.alarislabs.Utils.saveUrl(java.lang.String, java.lang.String)';
+  --
+  function request_lock(p_lock_name varchar2, p_timeout number := 0, p_release_on_commit boolean := false) return boolean;
+  function release_lock(p_lock_name varchar2) return boolean;
+  --
+  function get_field_val(p_rec varchar2, p_field_num integer, p_sep varchar2 default chr(1)) return varchar2;
+  --
+  function get_directory_path(p_dir_name varchar2) return varchar2;
+  function get_directory_name(p_dir_path varchar2) return varchar2;
+  --
+  function get_csv_row_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor;
+  --
+  procedure do_abstract_call(p_call_code varchar2, p_param varchar2);
+  --
+  function is_primary return number;
+  --
+  function get_tz_offset_minutes(p_from_tz varchar2, p_to_tz varchar2, p_dcheck date) return number as
+    language java name 'com.alarislabs.Utils.getTZOffsetMinutes(java.lang.String,java.lang.String,java.sql.Date) return int';
+  function convert_date(p_source_date date, p_from_tz varchar2, p_to_tz varchar2 default get_param('PARAM-SYS-TIMEZONE-NAME')) return date;
+  procedure reset_db_tz;
+  function get_link(p_url varchar2) return clob;
+  function get_urlencode(p_str varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.getURLEncode(java.lang.String) return java.lang.String';
+  function check_job_enabled(p_job_name varchar2) return boolean;
+  function check_job_running(p_job_name varchar2) return boolean;
+  function next_date(p_fmt varchar2, p_date date, p_step number default 1) return date deterministic;
+  function translit(p_str varchar2) return varchar2;
+  function get_valid_filename(p_str varchar2) return varchar2;
+  function get_cpu_count return number;
+  --
+
+  procedure push2queue(p_array in out nocopy prv_varchar30_table_t, p_val varchar2, p_array_size number);
+  --
+  function get_part_date(p_table_name varchar2, p_part_name varchar2) return date;
+
+
+  function java_to_char(l_plsqldate date, p_plsqlfmt varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.toChar(java.sql.Timestamp, java.lang.String) return java.lang.String';
+  --
+  procedure java_init_csv_parser(p_file_path varchar2, p_sep varchar2) as
+    language java name 'com.alarislabs.Utils.initCsvParser(java.lang.String,java.lang.String)';
+  function java_fetch_csv_records return prv_common_table_t as
+    language java name 'com.alarislabs.Utils.fetchRecords() return oracle.sql.ARRAY';
+  --
+  function parse_csv(p_file_path varchar2, p_sep varchar2, p_limit_page_count number := null) return prv_common_table_t;
+  --
+  function convert_sort_expression(p_orderby_clause varchar2, p_mapping_str varchar2) return varchar2;
+  function get_sort_expression(p_sort_order varchar2,
+      p_col01 varchar2 := null, p_col02 varchar2 := null, p_col03 varchar2 := null, p_col04 varchar2 := null, p_col05 varchar2 := null,
+      p_col06 varchar2 := null, p_col07 varchar2 := null, p_col08 varchar2 := null, p_col09 varchar2 := null, p_col10 varchar2 := null,
+      p_col11 varchar2 := null, p_col12 varchar2 := null, p_col13 varchar2 := null, p_col14 varchar2 := null, p_col15 varchar2 := null,
+      p_col16 varchar2 := null, p_col17 varchar2 := null, p_col18 varchar2 := null, p_col19 varchar2 := null, p_col20 varchar2 := null,
+      p_col21 varchar2 := null, p_col22 varchar2 := null, p_col23 varchar2 := null, p_col24 varchar2 := null, p_col25 varchar2 := null,
+      p_col26 varchar2 := null, p_col27 varchar2 := null, p_col28 varchar2 := null, p_col29 varchar2 := null, p_col30 varchar2 := null,
+      p_col31 varchar2 := null, p_col32 varchar2 := null, p_col33 varchar2 := null, p_col34 varchar2 := null, p_col35 varchar2 := null)
+  return raw;
+  --
+  procedure update_last_failed_query(p_query clob);
+  --
+  procedure init_redis_conn(p_hostname varchar2, p_port number, p_pwd varchar2) as
+    language java name 'com.alarislabs.Redis.initRedisConnection(java.lang.String,int,java.lang.String)';
+  procedure init_def_redis_conn(p_proc_name varchar2 := null);
+  procedure close_redis_connection as
+    language java name 'com.alarislabs.Redis.closeRedisConnection()';
+  procedure redis_set_json(p_key varchar2, p_json varchar2) as
+    language java name 'com.alarislabs.Redis.setKey(java.lang.String,java.lang.String)';
+  function redis_get_json(p_key varchar2) return varchar2 as
+    language java name 'com.alarislabs.Redis.getKey(java.lang.String) return java.lang.String';
+  procedure redis_set_val(p_key varchar2, p_val varchar2) as
+    language java name 'com.alarislabs.Redis.setKeyVal(java.lang.String,java.lang.String)';
+  function redis_get_val(p_key varchar2) return varchar2 as
+    language java name 'com.alarislabs.Redis.getKeyVal(java.lang.String) return java.lang.String';
+  procedure redis_delete_key(p_key varchar2) as
+    language java name 'com.alarislabs.Redis.deleteKey(java.lang.String)';
+  procedure redis_set_hval(p_key varchar2, p_field varchar2, p_val varchar2) as
+    language java name 'com.alarislabs.Redis.setKeyHVal(java.lang.String,java.lang.String,java.lang.String)';
+  function redis_get_hval(p_key varchar2, p_field varchar2) return varchar2 as
+    language java name 'com.alarislabs.Redis.getKeyHVal(java.lang.String,java.lang.String) return java.lang.String';
+  procedure redis_delete_hkey(p_key varchar2, p_field varchar2) as
+    language java name 'com.alarislabs.Redis.deleteHKey(java.lang.String,java.lang.String)';
+  procedure redis_delete_keys(p_pattern varchar2) as
+    language java name 'com.alarislabs.Redis.deleteKeys(java.lang.String)';
+  function redis_hincrby(p_key varchar2, p_field varchar2, p_value number) return number as
+    language java name 'com.alarislabs.Redis.hincrBy(java.lang.String,java.lang.String,long) return java.lang.Long';
+  procedure redis_set_keys(p_mask varchar2, p_keys prv_varchar256_table_t, p_values prv_varchar4000_table_t, p_is_json_value number) as
+    language java name 'com.alarislabs.Redis.setKeys(java.lang.String,oracle.sql.ARRAY,oracle.sql.ARRAY,int)';
+  procedure redis_set_hkeys(p_keys prv_varchar256_table_t, p_fields prv_varchar256_table_t, p_values prv_varchar4000_table_t) as
+    language java name 'com.alarislabs.Redis.setHKeys(oracle.sql.ARRAY,oracle.sql.ARRAY,oracle.sql.ARRAY)';
+  function redis_get_keys(p_mask varchar2) return prv_varchar256_table_t as
+    language java name 'com.alarislabs.Redis.getKeys(java.lang.String) return oracle.sql.ARRAY';
+  --
+  function bytes2hex(data blob) return clob as
+    language java name 'com.alarislabs.Utils.bytesToHex(java.lang.byte[]) return java.lang.String';
+  function encrypt(p_str varchar2, p_key_path varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.encrypt(java.lang.String,java.lang.String) return java.lang.String';
+  function decrypt(p_cipher varchar2, p_key_path varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.decrypt(java.lang.String,java.lang.String) return java.lang.String';
+  function get_signature(p_str varchar2, p_private_key varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.getSignature(java.lang.String,java.lang.String) return java.lang.String';
+  function verify_signature(p_str varchar2, p_signature varchar2) return boolean as
+    language java name 'com.alarislabs.Utils.verifySignature(java.lang.String,java.lang.String) return java.lang.boolean';
+  function verify_parameter(p_param_name varchar2, p_param_value varchar2, p_signature varchar2) return number;
+  --
+  function get_url(p_url varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.getUrl(java.lang.String) return java.lang.String';
+  function send_clob2url(p_url varchar2, p_method varchar2, p_body clob, p_header_json varchar2, p_certificate_check boolean) return varchar2 as
+    language java name 'com.alarislabs.Utils.sendClobToUrl(java.lang.String,java.lang.String,oracle.sql.CLOB,java.lang.String,boolean) return java.lang.String';
+  --
+  function get_server_tz_name(p_tz_name in out varchar2, p_is_dst in out pls_integer, p_num_m in out pls_integer)
+    return varchar2
+    parallel_enable
+    as language c
+    library rat_ana_lib
+    name "get_tz_name"
+    with context
+    parameters
+    (
+      context, p_tz_name, p_tz_name length,
+      p_tz_name maxlen, p_is_dst by reference, p_num_m by reference,
+      return indicator, return length, return by reference
+    );
+  function get_server_tz_name return varchar2;
+  --
+  function get_policy4cdr(p_object_schema varchar2, p_object_name varchar2) return varchar2;
+  --
+  function get_one_time_pass return varchar2;
+  --
+ --
+  procedure check_rowcount;
+  --
+  function get_host_from_url(p_url varchar2) return varchar2;
+  --
+  function convert(p_old_value varchar2, p_new_value varchar2) return varchar2;
+  --
+  --
+  function get_file_as_array(p_file_id varchar2, p_limit_page_count number := null) return prv_common_table_t;
+  --
+  function java_get_version(p_class_name varchar2) return varchar2 as
+    language java name 'com.alarislabs.Utils.getVersionForClassName(java.lang.String) return java.lang.String';
+  --
+  procedure wait_for_job(p_job_mask varchar2);
+  --
+  procedure refresh_log_bookmarks;
+  --
+  procedure add_deferred_action(p_action_sql varchar2);*/
+  --
+end;
+/
+create or replace package body prv_utils as
+
+
+
+  function get_key(p_json varchar2, p_key varchar2) return varchar2
+  is
+  begin
+    return null; --tODO
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_all_properties(p_json varchar2) return prv_abstract_table_t
+  is
+  begin
+    return prv_abstract_table_t(); --TODO
+  end;
+  -----------------------------------------------------------------------------------------------
+  function shield_unshield(p_str varchar2, p_mode number) return varchar2 is
+    l_str varchar2(32767) := p_str;
+    c_shield    constant prv_varchar16_table_t := prv_varchar16_table_t('\', '"', '/', chr(8), chr(9), chr(10), chr(12), chr(13));
+    c_unshield  constant prv_varchar16_table_t := prv_varchar16_table_t('\\', '\"', '\/', '\b', '\t', '\n', '\f', '\r');
+  begin
+    for i in c_shield.first..c_shield.last loop
+      if p_mode = 1 then
+      l_str := replace(l_str, c_shield(i), c_unshield(i));
+      else
+      l_str := replace(l_str, c_unshield(i), c_shield(i));
+      end if;
+    end loop;
+    return l_str;
+  end;
+
+  -----------------------------------------------------------------------------------------------
+  function str2table(p_str varchar2, p_separator varchar2) return prv_varchar4000_table_t is
+    l_res prv_varchar4000_table_t := prv_varchar4000_table_t();
+    l_cnt pls_integer;
+    l_str varchar2(32767);
+  begin
+
+    l_str := p_str;
+
+    if substr(l_str, length(l_str), 1) <> p_separator then
+      l_str := l_str || p_separator;
+    end if;
+
+    l_cnt := (length(l_str)-length(replace(l_str,p_separator)))/length(p_separator);
+
+    if l_cnt is null then
+      return l_res;
+    end if;
+
+    l_res.extend(l_cnt);
+
+    for i in 1..l_cnt loop
+      l_res(i) := rtrim(regexp_substr(l_str,'[^'||p_separator||']*['||p_separator||']',1,i), p_separator);
+    end loop;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function json2param(p_json varchar2) return prv_utils.param_t is
+    l_param prv_utils.param_t;
+    l_array prv_abstract_table_t := prv_utils.get_all_properties(p_json);
+  begin
+
+    if l_array is not null and l_array.count > 0 then
+      for i in l_array.first .. l_array.last loop
+        l_param(l_array(i).c1) := l_array(i).c2;
+      end loop;
+    end if;
+
+    return l_param;
+
+    exception when others then
+      raise_application_error(-20000, substr('Invalid json: '||p_json, 1, 4000));
+  end;
+  -----------------------------------------------------------------------------------------------
+  function validate_value(p_validation_json varchar2, p_value varchar2) return varchar2
+  is
+    l_param   prv_utils.param_t := json2param(p_validation_json);
+    l_value   prv_param.param_value%type := nullif(p_value, 'null');
+    l_number  number;
+  begin
+
+
+    --Check boolean
+    if l_param('type') in ('boolean')
+      and l_value not in ('0', '1')
+    then
+      return 'boolean value expected, got ' || p_value;
+    --Check numeric
+    elsif l_param('type') in ('number', 'integer') then
+
+      begin
+        l_number := to_number(l_value);
+      exception when others then
+        return 'numeric value expected, got ' || p_value;
+      end;
+
+      --Check min
+      if l_param.exists('min')
+        and l_number < l_param('min')
+      then
+        return 'minimum value is ' || l_param('min') || ', got ' || p_value;
+      end if;
+
+      --Check max
+      if l_param.exists('max')
+        and l_number > l_param('max')
+      then
+        return 'maximum value is ' || l_param('max') || ', got ' || p_value;
+      end if;
+
+      --Check integer
+      if l_param('type') in ('integer')
+         and l_number != trunc(l_number)
+      then
+        return 'integer value expected, got ' || p_value;
+      end if;
+
+    --Check regexp
+    elsif l_param('type') in ('string', 'password')
+      and l_param.exists('regexp')
+      and not regexp_like(l_value, l_param('regexp'))
+    then
+
+      return 'value ' || p_value || ' doesn''t match regexp: ' || l_param('regexp');
+
+    --Check email lists
+    /*elsif l_param('type') in ('email_list') and not prv_mail_utils.is_valid_mail_list(l_value) then
+
+      return 'value ' || p_value || ' is not valid email list';
+
+
+    --Check single email address
+    elsif l_param('type') in ('email_addr') and not prv_mail_utils.is_valid_mail_addr(l_value) then
+
+      return 'value ' || p_value || ' is not valid email address';*/
+
+    --Check date
+    elsif l_param('type') = 'datetime' then
+
+      declare
+        l_test_date date;
+      begin
+        l_test_date := to_date(l_value);
+      exception when others then
+        return 'value ' || p_value || ' is not valid datetime';
+      end;
+
+    --Check list
+    /*elsif l_param('type') = 'list' and l_param.exists('values') then
+
+      declare
+        l_matched  boolean := false;
+        l_values  prv_varchar4000_table_t := prv_utils.java_get_array(l_param('values'));
+      begin
+
+        for i in l_values.first .. l_values.last loop
+          if l_values(i) = p_value then
+            l_matched := true;
+            exit;
+          end if;
+        end loop;
+
+        if not l_matched then
+          return 'expected values: ' || l_param('values') || ', got ' || p_value;
+        end if;
+
+      end;*/
+
+    elsif l_param('type') = 'json' then
+
+      declare
+        l_value varchar2(32767) := prv_utils.shield_unshield(p_value, 2);
+      begin
+        select null
+        into l_value
+        from dual
+        where l_value is json;
+      exception when no_data_found then
+        return 'value ' || l_value || ' is not valid json';
+      end;
+
+    elsif l_param('type') = 'array' then
+    
+      declare
+        l_array   prv_varchar4000_table_t;
+        l_sep     varchar2(16) := case when l_param.exists('sep') then l_param('sep') else ',' end;
+        l_buf     varchar2(4000);
+      begin
+        l_array := prv_utils.str2table(p_value, l_sep);
+
+        if l_array.count > 0 and l_param.exists('items') then
+          for i in l_array.first .. l_array.last loop
+            l_buf := validate_value(l_param('items'), l_array(i));
+            if l_buf is not null then
+              return 'validation of array ' || p_value || ' with separator ' || l_sep || ' failed: ' || l_buf;
+            end if;
+          end loop;
+        end if;
+
+      exception when others then
+        return 'value ' || l_value || ' is not valid array';
+      end;
+    
+    end if;
+
+    if l_param.exists('plsql_block') then
+      execute immediate l_param('plsql_block') using p_value;
+    end if;
+
+
+    --All checks passed successfully
+    return null;
+
+
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function str2plsqltable(p_str varchar2, p_separator varchar2) return dbms_sql.varchar2_table is
+    l_cnt pls_integer;
+    l_res dbms_sql.varchar2_table;
+    l_str varchar2(32767);
+  begin
+
+    l_str := p_str;
+
+    if substr(l_str, length(l_str), 1) <> p_separator then
+      l_str := l_str || p_separator;
+    end if;
+
+    l_cnt := (length(l_str)-length(replace(l_str,p_separator)))/length(p_separator);
+
+    if l_cnt is null then
+      return l_res;
+    end if;
+
+    for i in 1..l_cnt loop
+      l_res(i) := rtrim(regexp_substr(l_str,'[^'||p_separator||']*['||p_separator||']',1,i), p_separator);
+    end loop;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function java_get_array(p_json varchar2) return prv_varchar4000_table_t
+  is
+  begin
+
+    return prv_varchar4000_table_t(); --TODO
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function extract_val(p_str varchar2, p_sep char, p_position pls_integer) return varchar2 is
+    l1 pls_integer := case when p_position = 1 then 0 else instr(p_str, p_sep, 1, p_position - 1) end;
+    l2 pls_integer := instr(p_str||p_sep, p_sep, 1, p_position);
+  begin
+    return substr(p_str, l1 + 1, l2 - l1 - 1);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function param2json
+  (
+    p_names               dbms_sql.varchar2_table,
+    p_values              dbms_sql.varchar2_table,
+    p_max_size            number := 4000,
+    p_raise_overflow_ex   boolean := true,
+    p_exclude_param_list  varchar2 := null
+  )
+  return varchar2
+  is
+    l_json varchar2(32767) := '{';
+    l_buf varchar2(32767);
+  begin
+
+    if p_names.count > 0 then
+      for i in p_names.first..p_names.last loop
+        if p_exclude_param_list is null or instr(',' || p_exclude_param_list || ',', ',' || p_names(i) || ',') = 0 then
+          l_buf := '"'||p_names(i)||'":"'||case when p_values.exists(i) then shield_unshield(p_values(i), 1) end||'",';
+          if lengthb(l_json) + lengthb(l_buf) > p_max_size then
+            if p_raise_overflow_ex then
+              raise_application_error(-20000, 'Can not convert to json, data size is too long. Max size: '||p_max_size);
+            end if;
+            exit;
+          end if;
+          l_json := l_json||l_buf;
+        end if;
+      end loop;
+    end if;
+
+    return rtrim(l_json,',')||'}';
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_timestamp_diff(p_start_timestamp timestamp, p_end_timestamp timestamp)
+  return number deterministic
+  is
+    l_interval interval day(9) to second;
+  begin
+
+    begin
+      l_interval := p_end_timestamp - p_start_timestamp;
+    exception when others then
+      if sqlcode = -1873 then
+        return 8640000000;
+      else
+        raise;
+      end if;
+    end;
+
+    return extract(day from l_interval) * 86400
+      + extract(hour from l_interval) * 3600
+      + extract(minute from l_interval) * 60
+      + extract(second from l_interval);
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function param2json(p_param param_t, p_json_values boolean := false) return varchar2 is
+    l_json varchar2(32767) := '{';
+    l_key varchar2(4000);
+  begin
+
+    l_key := p_param.first;
+    loop
+      exit when l_key is null;
+
+      if p_json_values and l_key like '%\_json' escape '\' then
+        l_json := l_json||'"'||l_key||'":'||nvl(p_param(l_key), 'null')||',';
+      else
+        l_json := l_json||'"'||l_key||'":"'||shield_unshield(p_param(l_key), 1)||'",';
+      end if;
+      l_key := p_param.next(l_key);
+    end loop;
+
+    return rtrim(l_json,',')||'}';
+  end;
+  -----------------------------------------------------------------------------------------------
+
+
+/*
+  --
+  --Constant getters
+  function c_traffic_alert_type_id  return number is begin return 100; end;
+  function c_other_alert_type_id    return number is begin return 101; end;
+  function c_new_alert_status_id    return number is begin return 1; end;
+  function c_error_alert_type_id    return number is begin return 102; end;
+  function c_severity_low           return number is begin return 1; end;
+  function c_severity_normal        return number is begin return 2; end;
+  function c_severity_high          return number is begin return 3; end;
+  --
+  function c_job_new        return number is begin return 1; end;
+  function c_job_done       return number is begin return 0; end;
+  function c_job_failed     return number is begin return 2; end;
+  function c_job_aborted    return number is begin return 3; end;
+  function c_job_scheduled  return number is begin return 4; end;
+  function c_job_pending    return number is begin return 5; end;
+  function c_job_waiting    return number is begin return 6; end;
+  --
+  function c_debug_info     return varchar2 is begin return 'Info'; end;
+  function c_debug_warning  return varchar2 is begin return 'Warning'; end;
+  function c_debug_error    return varchar2 is begin return 'Error'; end;
+  --
+  function c_session_expire_ctx  return varchar2 is begin return 'SESSION_EXPIRE_DATE'; end;
+  -----------------------------------------------------------------------------------------------
+  procedure check_date_fmt_compatibility(p_plsql_date_fmt varchar2)
+  is
+    l_sysdate date := sysdate;
+  begin
+    if replace(to_char(l_sysdate, p_plsql_date_fmt),' ','') = replace( prv_utils.java_to_char(l_sysdate, p_plsql_date_fmt),' ','')  then
+      return;
+    else
+      raise_application_error(-20000, prv_utils.get_message('PRV-ERR-INVALID-DATE-FORMAT', p_plsql_date_fmt));
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_dbid return number result_cache is
+    l_dbid number;
+  begin
+    select dbid
+    into l_dbid
+    from v$database;
+    return l_dbid;
+  end;
+  -------------------------------------------------------------------------------
+  function get_param_rec(p_code varchar2) return prv_param%rowtype is
+  begin
+    return prv_var.get_param_rec(p_code);
+  end;
+  -------------------------------------------------------------------------------
+  function get_param(p_code varchar2) return varchar2 result_cache is
+  begin
+    return prv_var.get_param_rec(p_code).param_value
+      || case
+        when p_code = 'FIN-SYSTEM-OWNER-NAME' and get_context_var(c_session_expire_ctx) is not null
+        then ' DEMO'
+      end;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_signed_param_list return prv_varchar30_table_t is
+  begin
+    return prv_varchar30_table_t
+    (
+      'FIN-SYSTEM-OWNER-NAME',        --System owner name
+      'PARAM-LICENSE_EXP_DATE',       --License expiry date
+      'PARAM-LICENSE_SYS_EXP_DATE',   --System expiry date
+      'PARAM-LICENSE_MM_CNT',         --Licensed number of minutes per month
+      'PARAM-LICENSE_CDR_CNT',        --Licensed number of CDR per month
+      'PARAM-LICENSE_SMS_CNT',        --Licensed number of sms messages per month
+      'PARAM-LICENSE_BR_EXP_DATE',    --Blended routing expire date
+      'PARAM-LICENSE_BR_CNT',         --Licensed number of blended routing rules
+      'PARAM-LICENSE_ALLOW_BLOCKING', --Allow traffic blocking if license parameters exceeded
+      'PARAM-LICENSE_SD_EXP_DATE',    --Swap deal expire date
+      'PARAM-LICENSE_SD_CNT',         --Licensed number of swap deals
+      'PARAM-LICENSE_TF_EXP_DATE',    --Targets (funnel) expire date
+      'PARAM-LICENSE_FEATURE_11253'   --Licensed for feature Bug 11253
+    );
+  end;
+  -----------------------------------------------------------------------------------------------
+  function verify_parameter(p_param_name varchar2, p_param_value varchar2, p_signature varchar2) return number is
+  begin
+    return case
+        when verify_signature(p_param_value||get_dbid||p_param_name, p_signature)
+        then 1
+        else 0
+      end;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure check_license is
+    l_param_rec         prv_param%rowtype;
+    l_signed_param_list prv_varchar30_table_t := get_signed_param_list;
+    l_skip_check        boolean := false;
+  begin
+
+    --Setup license parameters
+    for i in l_signed_param_list.first..l_signed_param_list.last loop
+      l_param_rec := prv_utils.get_param_rec(l_signed_param_list(i));
+
+      if l_param_rec.param_value = 'null' and l_param_rec.param_code = 'PARAM-LICENSE_EXP_DATE' then
+        --Parameter not set
+        set_context_var(c_session_expire_ctx, to_char(sysdate + 15/1440, prv_var.c_sys_datetime_fmt));
+        l_skip_check := true;
+      elsif verify_parameter(l_param_rec.param_code, l_param_rec.param_value, l_param_rec.param_signature) = 1 then
+        --Parameter is set and signed
+        set_context_var(l_signed_param_list(i), l_param_rec.param_value);
+      else
+        set_context_var(l_signed_param_list(i), 'null');
+      end if;
+    end loop;
+
+    if l_skip_check then
+      return;
+    end if;
+
+    --Check expire date not null
+    if get_context_var('PARAM-LICENSE_EXP_DATE') is null then
+      raise_application_error(-20001, prv_utils.get_message('ERR-LICENSE'));
+    end if;
+
+    --Check expire date
+    if to_date(get_context_var('PARAM-LICENSE_EXP_DATE'), prv_var.c_sys_datetime_fmt) + 1 < sysdate then
+      raise_application_error(-20001, prv_utils.get_message('ERR-LICENSE_EXPIRED'));
+    end if;
+
+    --Check volume parameters
+    if prv_var.c_voice_version = 1
+        and
+        (
+          get_context_var('PARAM-LICENSE_MM_CNT') is null
+          or get_context_var('PARAM-LICENSE_CDR_CNT') is null
+        ) then
+      raise_application_error(-20001, prv_utils.get_message('ERR-LICENSE_VOICE'));
+    end if;
+
+    --Check sms volume parameters
+    if prv_var.c_sms_version = 1 and get_context_var('PARAM-LICENSE_SMS_CNT') is null then
+      raise_application_error(-20001, prv_utils.get_message('ERR-LICENSE_SMS'));
+    end if;
+
+  end;
+  -------------------------------------------------------------------------------
+  procedure check_license_stat_usage is
+    l_cur_mm_cnt number;
+    l_cur_cdr_cnt number;
+    l_vendor_group_id number;
+    l_license_mm_cnt number := nvl(get_context_var('PARAM-LICENSE_MM_CNT'), 0);
+    l_license_cdr_cnt number := nvl(get_context_var('PARAM-LICENSE_CDR_CNT'), 0);
+  begin
+
+    --To prevent dependency, dynamic sql used
+    execute immediate 'select sta_cube_utils.get_group_id(''dst_poi_id'') from dual' into l_vendor_group_id;
+
+    select sum(sum_duration)/60, sum(count_total)
+    into l_cur_mm_cnt, l_cur_cdr_cnt
+    from sta_cube_day
+    where group_id = l_vendor_group_id
+    and dcheck >= trunc(sysdate - 1, 'MM')
+    and dcheck < add_months(trunc(sysdate - 1, 'MM'), 1);
+
+    if l_cur_mm_cnt > l_license_mm_cnt or l_cur_cdr_cnt > l_license_cdr_cnt then
+
+      --Block voice system if allowed
+      if nvl(get_context_var('PARAM-LICENSE_ALLOW_BLOCKING'), 1) = 1
+        and nvl(get_param('PARAM-BLOCK_VOICE'), 'null') <> '1' then
+        update_param('PARAM-BLOCK_VOICE', '1', 0, 0, 1);
+        commit;
+      end if;
+
+
+      --license numbers exceeded
+      send_alert(prv_utils.get_message
+      (
+        'PRV-LICENSE-LETTER',
+        to_char(l_license_mm_cnt, 'FM999G999G990'),
+        to_char(l_license_cdr_cnt, 'FM999G999G990'),
+        to_char(l_cur_mm_cnt, 'FM999G999G990'),
+        to_char(l_cur_cdr_cnt, 'FM999G999G990'),
+        to_char(trunc(sysdate - 1, 'MM'), 'MM.YYYY')),
+        'sales@alarislabs.com'
+      );
+
+    else
+
+      --Release voice system block
+      if get_param('PARAM-BLOCK_VOICE') = '1' then
+        update_param('PARAM-BLOCK_VOICE', '0', 0, 0, 1);
+        commit;
+      end if;
+
+
+    end if;
+
+    exception when no_data_found then
+      null;
+  end;
+  -------------------------------------------------------------------------------
+  procedure check_license_sms_usage is
+    c_group_id number;
+    l_cur_sms_cnt number;
+    l_license_sms_cnt number := nvl(get_context_var('PARAM-LICENSE_SMS_CNT'), 0);
+  begin
+
+    select max(group_id)
+    into c_group_id
+    from sms_cube_group;
+
+    select sum(count_ok)
+    into l_cur_sms_cnt
+    from sms_cube_day
+    where group_id = c_group_id
+    and dcheck >= trunc(sysdate - 1, 'MM')
+    and dcheck < add_months(trunc(sysdate - 1, 'MM'), 1);
+
+    if l_cur_sms_cnt > l_license_sms_cnt then
+
+      --Block sms system if allowed
+      if nvl(get_context_var('PARAM-LICENSE_ALLOW_BLOCKING'), 1) = 1
+        and nvl(get_param('PARAM-BLOCK_SMS'), 'null') <> '1' then
+        update_param('PARAM-BLOCK_SMS', '1', 0, 0, 1);
+        commit;
+      end if;
+
+
+      --license numbers exceeded
+      send_alert(prv_utils.get_message
+      (
+        'SMS-LICENSE-LETTER',
+        to_char(l_license_sms_cnt, 'FM999G999G990'),
+        to_char(l_cur_sms_cnt, 'FM999G999G990'),
+        to_char(trunc(sysdate - 1, 'MM'), 'MM.YYYY')),
+        'sales@alarislabs.com'
+      );
+
+    else
+
+      --Release voice system block
+      if get_param('PARAM-BLOCK_SMS') = '1' then
+        update_param('PARAM-BLOCK_SMS', '0', 0, 0, 1);
+        commit;
+      end if;
+
+    end if;
+
+    exception when no_data_found then
+      null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_random_string(p_length number) return varchar2 is
+    l_symb char;
+    l_random_string varchar(256);
+  begin
+    l_random_string:='';
+    for i in 1..least(p_length,256) loop
+      select decode(round(dbms_random.value(0,2)),
+            0,chr(round(dbms_random.value(48,57))),
+            1,chr(round(dbms_random.value(65,80))),
+            2,chr(round(dbms_random.value(97,122))))
+      into l_symb
+      from dual;
+      l_random_string:=l_random_string||l_symb;
+    end loop;
+    return l_random_string;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure set_lang(p_lang varchar2) is
+  begin
+    set_context_var('user_lang', p_lang);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_lang return varchar2 is
+  begin
+    return get_context_var('user_lang');
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_sys_tz_offset return varchar2 is
+    l_offset number := to_number(prv_utils.get_param('PARAM-SYS-TIMEZONE'));
+  begin
+    return to_char(floor(l_offset), 'S00')||':'||substr(to_char((l_offset - floor(l_offset))*60, '00'), 2);
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure set_nls_date_format is
+    l_fmt varchar2(256) := nvl(prv_utils.get_param('PARAM-SYS-DATETIME-FMT'),'YYYY.MM.DD HH24:MI:SS');
+    l_sys_tz_offset varchar2(256) := get_sys_tz_offset;
+    l_sys_tz_name   varchar2(256) := get_server_tz_name;
+  begin
+    execute immediate 'alter session set nls_territory = ''UNITED KINGDOM''';
+    execute immediate 'alter session set nls_date_format='''||l_fmt||'''';
+    execute immediate 'alter session set nls_currency=''$''';
+    execute immediate 'alter session set nls_numeric_characters = ''. ''';
+    if nullif(l_sys_tz_offset, ':') is not null then
+      execute immediate 'alter session set time_zone=''' || coalesce(l_sys_tz_name, l_sys_tz_offset) || '''';
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure refresh_job_states is
+  begin
+
+    for i in (select job_name, required_status
+      from
+      (
+        select job_name, enabled,
+          case
+            when prv_var.c_sms_version = 1 and substr(job_name, 1, 3) = 'SMS'
+            then 'TRUE'
+            when prv_var.c_sms_version = 0 and substr(job_name, 1, 3) = 'SMS'
+            then 'FALSE'
+            when prv_var.c_voice_version = 1 and substr(job_name, 1, 3) in ('STA', 'RAT', 'RUT')
+            then 'TRUE'
+            when prv_var.c_voice_version = 0 and substr(job_name, 1, 3) in ('STA', 'RAT', 'RUT')
+            then 'FALSE'
+          end required_status
+        from user_scheduler_jobs
+      )
+      where enabled <> required_status
+    ) loop
+
+      dbms_output.put_line(i.job_name||' now enabled: '||i.required_status);
+
+      if i.required_status = 'TRUE' then
+        dbms_scheduler.enable(i.job_name);
+      elsif i.required_status = 'FALSE' then
+        dbms_scheduler.disable(i.job_name, true);
+      end if;
+
+    end loop;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_param
+  (
+    p_code            varchar2,
+    p_value           varchar2,
+    p_is_editable     number := null,
+    p_is_hidden       number := null,
+    p_is_public       number := null,
+    p_validation_json varchar2 := null
+  )
+  is
+    c_uidisp_acl            constant varchar2(256) := 'uidisp_acl_file.xml';
+    c_uidisp_ip             constant varchar2(256) := 'PARAM-SYS-UIDISP-IP';
+    c_uidisp_port           constant varchar2(256) := 'PARAM-SYS-UIDISP-PORT';
+    --
+    c_sms_send_acl          constant varchar2(256) := 'sms_send_acl_file.xml';
+    c_sms_send_ip           constant varchar2(256) := 'SMS-SEND-IP';
+    c_sms_send_port         constant varchar2(256) := 'SMS-SEND-PORT';
+    --
+    c_sms_version           constant varchar2(256) := 'PARAM-SMS';
+    c_voice_version         constant varchar2(256) := 'PARAM-VOICE';
+    --
+    c_enable_sync_to_redis  constant varchar2(256) := 'PARAM-ENABLE-SYNC-TO-REDIS';
+    c_clp_sms_local_ip      constant varchar2(256) := 'CLP-SMS_LOCAL_IP';
+    --
+    l_value                 prv_param.param_value%type := case when lower(nvl(p_value, 'null')) = 'null' then 'null' else p_value end;
+    l_param_rec             prv_param%rowtype;
+    l_check_errors          varchar2(4000);
+    --
+    procedure update_acl(p_acl_name varchar2, p_ip_address varchar2, p_port number)
+    is
+    begin
+      begin
+        dbms_network_acl_admin.drop_acl(p_acl_name);
+      exception
+        when others then
+        null;
+      end;
+      dbms_network_acl_admin.create_acl(p_acl_name, 'acl required for inVoice application', upper('invoice'), true, 'connect');
+      dbms_network_acl_admin.assign_acl(p_acl_name, p_ip_address, p_port, p_port);
+    end;
+  begin
+
+    --Parameter value validation
+    l_param_rec := prv_var.get_param_rec(p_code);
+    if l_param_rec.param_validation_json <> '{}' and l_param_rec.param_value <> l_value then
+      l_check_errors := prv_utils.validate_value(l_param_rec.param_validation_json, l_value);
+      if l_check_errors is not null then
+        raise_application_error(-20000, prv_utils.get_message('ERR-INVALID_PARAM_VALUE', l_check_errors));
+      end if;
+    end if;
+
+    merge into prv_param p
+    using dual
+    on (param_code = p_code)
+    when matched then
+      update set
+        param_value = l_value,
+        param_is_editable = nvl(p_is_editable, param_is_editable),
+        param_is_hidden = nvl(p_is_hidden, param_is_hidden),
+        param_is_public = nvl(p_is_public, param_is_public),
+        param_validation_json = nvl(p_validation_json, param_validation_json),
+        param_last_updated = sysdate
+      where param_value != l_value
+        or param_is_editable != p_is_editable
+        or param_is_hidden != p_is_hidden
+        or param_is_public != p_is_public
+        or param_validation_json != p_validation_json
+    when not matched then
+      insert
+      (
+        param_code,
+        param_value,
+        param_is_editable,
+        param_is_hidden,
+        param_is_public,
+        param_validation_json,
+        param_last_updated
+      )
+      values
+      (
+        p_code,
+        l_value,
+        nvl(p_is_editable, 0),
+        nvl(p_is_hidden, 0),
+        nvl(p_is_public, 0),
+        nvl(p_validation_json, '{}'),
+        sysdate
+      );
+
+    prv_var.m_rows_affected := sql%rowcount;
+
+    --If parameters
+    if sql%rowcount > 0 then
+
+      if p_code in (c_uidisp_ip, c_uidisp_port) then
+        declare
+          l_ip_list   dbms_sql.varchar2_table := prv_utils.str2plsqltable(prv_utils.get_param(c_uidisp_ip), ',');
+          l_port_list dbms_sql.number_table   := prv_utils.str2plsqlnumtable(prv_utils.get_param(c_uidisp_port), ',');
+        begin
+          for i in l_ip_list.first .. l_ip_list.last
+          loop
+            if l_port_list.exists(i) then
+              update_acl(nullif(i, 1) || c_uidisp_acl, l_ip_list(i), l_port_list(i));
+            end if;
+          end loop;
+        end;
+      elsif p_code in (c_sms_send_ip, c_sms_send_port) then
+        update_acl(c_sms_send_acl, prv_utils.get_param(c_sms_send_ip), prv_utils.get_param(c_sms_send_port));
+      elsif p_code in (c_sms_version, c_voice_version) then
+        --prv_var changes will be seen in new init
+        --commit;
+        dbms_scheduler.create_job
+        (
+          job_name => dbms_scheduler.generate_job_name,
+          job_type => 'PLSQL_BLOCK',
+          job_action => 'begin prv_utils.refresh_job_states; end;',
+          start_date => systimestamp + 1/24,
+          repeat_interval => null,
+          enabled => true,
+          auto_drop => true
+        );
+      elsif p_code in (c_enable_sync_to_redis) and p_value = '1' then
+        execute immediate 'begin prv_rr_utils.sync_to_redis_job(true); end;';
+      elsif p_code in (c_clp_sms_local_ip) and prv_var.c_sms_rtl_version = '1' then
+        --Update channel_ip
+        update sms_channel
+        set channel_ip = l_value
+        where channel_ip = l_param_rec.param_value
+        and channel_direction = 3
+        and channel_systemid like 'user\_%' escape '\'
+        and (l_value, channel_systemid, nvl(channel_port, -1)) not in
+        (
+          select c.channel_ip, c.channel_systemid, nvl(c.channel_port, -1)
+          from sms_channel c
+        );
+      end if;
+
+
+      --Check for Rtl param change
+      declare
+        l_var prv_varchar256_table_t := prv_var.c_rtl_params multiset intersect prv_varchar256_table_t(p_code);
+      begin
+        if l_var.count > 0 then
+          --Send update to rest API
+          dbms_scheduler.create_job
+          (
+            job_name => dbms_scheduler.generate_job_name,
+            job_type => 'PLSQL_BLOCK',
+            job_action => 'begin prv_utils.save_debug
+          (
+            ''Process Rtl param change'',
+            ''Result: '' || prv_utils.get_url(sms_rtl_utils.get_restman_base_url || ''/reload_configuration'')
+          ); end;',
+            start_date => systimestamp + 1/86400,
+            repeat_interval => null,
+            enabled => true,
+            auto_drop => true
+          );
+        end if;
+      end;
+
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_param_values(p_codes dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) is
+  begin
+    if p_codes.count > 0 then
+      for i in p_codes.first..p_codes.last loop
+        update_param(p_codes(i), p_values(i), null);
+      end loop;
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure delete_param(p_code varchar2) is
+  begin
+    delete from prv_param
+    where param_code=p_code;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_param_list return sys_refcursor
+  is
+    l_cur sys_refcursor;
+  begin
+    open l_cur for
+    select param_code,
+      case
+        when param_code like '%PWD'
+          then prv_var.c_pwd_mask
+        when param_code = 'FIN-SYSTEM-OWNER-NAME' and get_context_var(c_session_expire_ctx) is not null
+          then param_value || ' DEMO'
+        else param_value
+      end param_value,
+      param_is_editable,
+      prv_utils.get_message(regexp_substr(param_code, '[^\-]+')) param_group,
+      prv_utils.get_message(param_code) param_caption,
+      case
+        when param_signature is not null
+        then verify_parameter(param_code, param_value, param_signature)
+      end signed
+    from
+    (
+      select param_code, param_value, param_is_editable, param_signature
+      from prv_param
+      where param_is_hidden = 0
+      and (prv_var.c_voice_version = 1 or substr(param_code, 1, 3) not in ('ACA', 'RAT', 'RUT', 'STA', 'TRD'))
+      and (prv_var.c_sms_version = 1 or substr(param_code, 1, 3) not in ('SMS', 'TST', 'VUA'))
+        union all
+      select 'PARAM-USER_LEFT_AUTH', sys_context('user_ctx', 'user_left_auth'), 0, null
+      from dual
+        union all
+      select 'PARAM-USER_ID', sys_context('user_ctx', 'user_id'), 0, null
+      from dual
+        union all
+      select 'PARAM-USER_NAME', sys_context('user_ctx', 'user_name'), 0, null
+      from dual
+        union all
+      select 'PARAM-USER_EXPIRE_DATE', sys_context('user_ctx', 'user_expire_date'), 0, null
+      from dual
+    )
+    order by param_group, param_caption;
+
+    return l_cur;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_public_param_list return sys_refcursor
+  is
+    l_cur sys_refcursor;
+  begin
+    open l_cur for
+    select param_code, param_value
+    from prv_param
+    where param_is_public = 1;
+    
+    return l_cur;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure set_context_var(p_parameter in varchar2, p_value in varchar2) is
+  begin
+    dbms_session.set_context('prv_ctx', p_parameter,p_value);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_context_var(p_parameter in varchar2) return varchar2 is
+  begin
+    return nullif(sys_context('prv_ctx', p_parameter), 'null');
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure save_debug_transact(p_source varchar2, p_message varchar2, p_type varchar2 default c_debug_info)
+  is
+    l_debug_id number;
+  begin
+    if p_source like 'Deprecated method executed' then
+      null;
+    else
+      insert into prv_debug(debug_id, debug_time, debug_source, debug_user, debug_message, debug_type)
+      values (prv_debug_id_seq.nextval, sysdate, p_source, user, nvl(p_message, 'null'), p_type)
+      returning debug_id into l_debug_id;
+    end if;
+
+    --Send errors to supporters
+    if p_type = c_debug_error then
+      begin
+        prv_utils.add_alert
+        (
+          'New error detected', sysdate, null, null, c_new_alert_status_id, null, c_error_alert_type_id,
+          'Module: ' || p_source || '<br/>Debug user: ' || user || '<br/>Debug message: ' || nvl(p_message, 'null') ||
+          '<br/>', c_severity_high
+        );
+      exception when others then
+        prv_utils.save_debug(p_source, 'Failed to send alert due to error: ' || sqlerrm, prv_utils.c_debug_warning);
+      end;
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure save_debug(p_source varchar2, p_message varchar2, p_type varchar2 default c_debug_info)
+  is
+    pragma autonomous_transaction;
+  begin
+    save_debug_transact(p_source, p_message, p_type);
+    commit;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_alert(p_alert_info varchar2, p_alert_dcheck date,
+                      p_alert_blob blob, p_alert_blob_filename varchar2,
+                      p_alert_status_id number, p_alert_sent number,
+                      p_alert_type_id number, p_alert_details varchar2,
+                      p_alert_severity number) is
+    l_alert_sent number(1) := p_alert_sent;
+    l_alert_id number;
+  begin
+
+    if l_alert_sent is null then
+      send_alert(p_alert_info||'<br>'||chr(13)||chr(10)||p_alert_details);
+      l_alert_sent := 1;
+    end if;
+
+    insert into prv_alert (alert_id, alert_info, alert_dcheck, alert_blob, alert_blob_filename, alert_status_id, alert_sent, alert_type_id, alert_details, alert_severity)
+    values (prv_alert_id_seq.nextval, p_alert_info, p_alert_dcheck, p_alert_blob, p_alert_blob_filename, p_alert_status_id, l_alert_sent, p_alert_type_id, p_alert_details, p_alert_severity)
+    returning alert_id into l_alert_id;
+
+    delete from prv_alert
+    where alert_id = l_alert_id - 500;
+
+    commit;
+
+  end;
+  ----------------------------------------------------------------------------------
+  procedure send_alert
+  (
+    p_alert_info          varchar2,
+    p_alert_email         varchar2 := null,
+    p_alert_blob          blob := null,
+    p_alert_blob_filename varchar2 := null,
+    p_alert_subject       varchar2 := null
+  )
+  is
+    l_alert_emails prv_param.param_value%type;
+  begin
+
+    if p_alert_email is null or p_alert_email = 'null' then
+      l_alert_emails := nullif(prv_utils.get_param('PARAM-SUPPORT-EMAIL'), 'null');
+    else
+      l_alert_emails := p_alert_email;
+    end if;
+
+    if l_alert_emails is not null then
+      prv_mail_utils.send_file_by_email
+      (
+        l_alert_emails,
+        nvl(p_alert_subject,
+            prv_utils.get_param('FIN-SYSTEM-OWNER-NAME')
+            ||' '||prv_utils.get_param('PARAM-SYS-VERSION')
+            ||': Alert '||to_char(sysdate)),
+        p_alert_info,
+        'text/html;charset=UTF-8',
+        p_alert_blob,
+        'text/html;charset=UTF-8',
+        p_alert_blob_filename
+      );
+    end if;
+
+  end;
+  ----------------------------------------------------------------------------------
+  function get_message
+  (
+    p_message_code  varchar2,
+    p_param1        varchar2 := null,
+    p_param2        varchar2 := null,
+    p_param3        varchar2 := null,
+    p_param4        varchar2 := null,
+    p_param5        varchar2 := null,
+    p_param6        varchar2 := null,
+    p_param7        varchar2 := null,
+    p_param8        varchar2 := null,
+    p_param9        varchar2 := null,
+    p_param10       varchar2 := null,
+    p_default_lang  varchar2 := 'ENG',
+    p_user_lang     varchar2 := sys_context('prv_ctx', 'user_lang')
+  )
+  return varchar2 result_cache
+  is
+    l_text        prv_message.message_text%type;
+    l_lang        prv_message.message_lang%type;
+    l_param       varchar2(2048);
+    l_param_array prv_varchar4000_table_t;
+  begin
+
+    if p_message_code is null then
+      return null;
+    end if;
+
+    begin
+      select message_text, message_lang
+      into l_text, l_lang
+      from
+      (
+        select message_text, message_lang
+        from prv_message
+        where message_code = p_message_code
+        and message_lang in (p_user_lang, p_default_lang)
+        order by decode(message_lang, p_user_lang, 10, p_default_lang, 5) desc
+      )
+      where rownum = 1;
+    exception when no_data_found then
+      l_text := 'No message '||p_message_code||' found';
+    end;
+
+    if p_param1 is not null then
+
+      l_param_array := prv_varchar4000_table_t
+      (
+        p_param1, p_param2, p_param3, p_param4, p_param5,
+        p_param6, p_param7, p_param8, p_param9, p_param10
+      );
+
+      for i in l_param_array.first .. l_param_array.last loop
+        if l_param_array(i) is not null then
+          l_text := substrb(replace(l_text, '%' || i, l_param_array(i)), 1, 4000);
+        end if;
+      end loop;
+
+    end if;
+
+    if instr(l_text,'[') > 0 and instr(l_text,']') > instr(l_text,'[')+1 then
+      l_param := substr(l_text, instr(l_text,'[') + 1, instr(l_text,']') - instr(l_text,'[') - 1);
+      if prv_utils.get_param(l_param) is not null then
+        l_text:=replace(l_text, '['||l_param||']', prv_utils.get_param(l_param));
+      end if;
+    end if;
+
+    if l_lang is null and prv_utils.get_param('PARAM-DEBUG_MODE') = 'true' then
+      save_debug('No translation', p_message_code, c_debug_warning);
+    end if;
+    return l_text;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_message_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor
+  is
+    l_param         prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'pattern,lang,full');
+    l_message_cur   sys_refcursor;
+    l_user_lang     varchar2(30) := get_lang;
+  begin
+
+    if l_param('full') = '1' then
+
+      open l_message_cur for
+      select message_code,
+        l.lang_code message_lang,
+        (
+          select m.message_text
+          from prv_message m
+          where m.message_code = d.message_code
+          and m.message_lang = l.lang_code
+        ) message_text
+      from prv_lang l
+      cross join
+      (
+        select distinct message_code
+        from prv_message d
+        where
+        (
+          l_param('pattern') is null
+          or lower(message_code) like replace(lower(l_param('pattern')), '*', '%') || '%'
+        )
+      ) d
+      order by message_code, message_lang;
+
+    else
+
+      open l_message_cur for
+      select message_code, message_text
+      from
+      (
+        select
+          message_code,
+          message_text,
+          message_weight,
+          max(message_weight) over (partition by message_code) as max_message_weight
+        from
+        (
+          select
+            message_code,
+            message_text,
+            decode(message_lang, nvl(l_param('lang'), l_user_lang), 10, 'ENG', 5, 1) as message_weight
+          from prv_message
+          where
+          (
+            l_param('pattern') is null
+            or (instr(l_param('pattern'), '%') > 0 and lower(message_code) like lower(l_param('pattern')))
+            or (regexp_like(message_code, l_param('pattern'), 'i'))
+          )
+        )
+      )
+      where message_weight = max_message_weight;
+
+    end if;
+
+    return l_message_cur;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_lang_list return sys_refcursor is
+    l_lang_cur sys_refcursor;
+  begin
+    open l_lang_cur for
+    select lang_code, lang_descr, lang_default
+    from prv_lang
+    order by lang_default desc, lang_code;
+    return l_lang_cur;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_message(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table)
+  is
+    l_param   prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'message_code,text,lang');
+  begin
+    update_message(l_param('message_code'), l_param('text'), l_param('lang'));
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_message(p_message_code varchar2, p_text varchar2, p_lang varchar2:=null) is
+  begin
+    if p_text is null then
+      delete from prv_message
+      where message_code = p_message_code
+      and (p_lang is null or message_lang=p_lang);
+    else
+      merge into prv_message m
+      using
+      (
+        select p_message_code message_code,
+          p_text message_text,
+          nvl(p_lang, prv_utils.get_lang) message_lang
+        from dual
+      ) s
+      on (m.message_code=s.message_code and m.message_lang=s.message_lang)
+      when matched then
+        update set m.message_text=s.message_text
+      when not matched then
+        insert (message_code, message_lang, message_text) values (s.message_code, s.message_lang, s.message_text);
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function translate_error_msg(p_error_msg varchar2) return varchar2 is
+    l_message_code prv_error_msg.message_code%type;
+  begin
+
+    select message_code
+    into l_message_code
+    from
+    (
+      select message_code
+      from prv_error_msg
+      where p_error_msg like message_pattern
+      and message_code is not null
+      order by length(message_pattern) desc
+    )
+    where rownum = 1;
+
+    return prv_utils.get_message(l_message_code);
+
+    exception when no_data_found then
+
+      if p_error_msg like 'ORA-2000_:%' then
+        --Trim first ORA-2000X and get first record of stack
+        return regexp_substr(substr(p_error_msg, 12), '.*');
+      else
+        --Return as is
+        return p_error_msg;
+      end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_error_msg(p_error_code varchar2, p_error_pattern varchar2, p_error_message varchar2 default null, p_lang varchar2 default null) is
+  begin
+
+    merge into prv_error_msg
+    using dual
+    on (message_code = p_error_code)
+    when not matched then
+      insert (message_code, message_pattern)
+      values (p_error_code, p_error_pattern)
+    when matched then update
+      set message_pattern = p_error_pattern
+      delete where p_error_pattern is null;
+
+    if p_error_message is not null then
+      prv_utils.update_message(p_error_code, p_error_message, p_lang);
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function md5(p_text varchar2) return varchar2 is
+  begin
+    return rawtohex(dbms_obfuscation_toolkit.md5(input => utl_raw.cast_to_raw(p_text)));
+  end;
+  -----------------------------------------------------------------------------------------------
+  function ip2num(p_ip varchar2) return number is
+    l1 number := instr(p_ip, '.', 1, 1);
+    l2 number := instr(p_ip, '.', l1+1, 1);
+    l3 number := instr(p_ip, '.', l2+1, 1);
+  begin
+    return substr(p_ip, 1, l1-1)*16777216+
+            substr(p_ip, l1+1, l2-l1)*65536+
+            substr(p_ip, l2+1, l3-l2)*256+
+            substr(p_ip, l3+1, 3);
+  exception
+    when others then
+      return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+   function num2ip(p_num number) return varchar2 is
+    l_i1 number := floor(p_num/16777216);
+    l_i2 number := floor((p_num-l_i1*16777216)/65536);
+    l_i3 number := floor((p_num-l_i1*16777216-l_i2*65536)/256);
+    l_i4 number := p_num-l_i1*16777216-l_i2*65536-l_i3*256;
+   begin
+    return to_char(l_i1)||'.'||to_char(l_i2)||'.'||to_char(l_i3)||'.'||to_char(l_i4);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function netsize2num(p_size number) return number is
+  begin
+    if p_size<16 or p_size>32 or p_size!=round(p_size) then
+      raise_application_error(-20000,get_message('ERR-WRONG-NET-SIZE',p_size),false);
+    end if;
+    return power(2,32)-power(2,32-p_size);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function overlap(p_ip1 varchar2,p_size1 number,p_ip2 varchar2,p_size2 number) return number is
+  begin
+    if bitand(ip2num(p_ip1),netsize2num(least(p_size1,p_size2)))=
+       bitand(ip2num(p_ip2),netsize2num(least(p_size1,p_size2))) then
+      return 1;
+    else
+      return 0;
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function dec2bin(p_num number) return varchar2 is
+    l_binval varchar2(4000);
+    l_num number := p_num;
+  begin
+    while (l_num > 0) loop
+       l_binval := mod(l_num, 2) || l_binval;
+       l_num := trunc(l_num/2);
+    end loop;
+    return nvl(l_binval, 0);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function hex2bin(p_hex varchar2) return varchar2 is
+    l_hex varchar2(4000) := p_hex;
+    l_binval varchar2(4000);
+  begin
+    while (l_hex is not null) loop
+      l_binval := l_binval||lpad(dec2bin(to_number(substr(l_hex, 1, 2), 'XX')), 8, '0');
+      l_hex := substr(l_hex, 3);
+    end loop;
+    return l_binval;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function str2ntable(p_str varchar2, p_separator varchar2) return prv_number_table_t is
+    l_res prv_number_table_t := prv_number_table_t();
+    l_cnt pls_integer;
+    l_str varchar2(32767);
+  begin
+
+    l_str := p_str;
+
+    if substr(l_str, length(l_str), 1) <> p_separator then
+      l_str := l_str || p_separator;
+    end if;
+
+    l_cnt := (length(l_str)-length(replace(l_str,p_separator)))/length(p_separator);
+
+    if l_cnt is null then
+      return l_res;
+    end if;
+
+    l_res.extend(l_cnt);
+
+    for i in 1..l_cnt loop
+      l_res(i) := to_number(rtrim(regexp_substr(l_str,'[^'||p_separator||']*['||p_separator||']',1,i), p_separator));
+    end loop;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function str2plsqlnumtable(p_str varchar2, p_separator varchar2)
+  return dbms_sql.number_table
+  is
+    l_cnt pls_integer;
+    l_res dbms_sql.number_table;
+    l_str varchar2(32767);
+  begin
+
+    l_str := p_str;
+
+    if substr(l_str, length(l_str), 1) != p_separator then
+      l_str := l_str || p_separator;
+    end if;
+
+    l_cnt := (length(l_str) - length(replace(l_str, p_separator))) / length(p_separator);
+
+    if l_cnt is null then
+      return l_res;
+    end if;
+
+    for i in 1 .. l_cnt loop
+      l_res(i) := rtrim(regexp_substr(l_str, '[^' || p_separator || ']*[' || p_separator || ']' ,1 ,i), p_separator);
+    end loop;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function eval_exp(p_exp varchar2) return varchar2 is
+    l_res varchar2(2000);
+  begin
+  
+    if p_exp = '*' then
+      return p_exp;
+    end if;
+  
+    execute immediate 'select '||nvl(p_exp,'null')||' from dual' into l_res;
+    return l_res;
+  exception when others then
+    return p_exp;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_template_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor is
+    l_param   prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'template_namespace,param_name');
+    l_cur     sys_refcursor;
+  begin
+
+    open l_cur for
+    select template_id, template_name,
+            (select param_value
+              from prv_template_content tc
+              where tc.template_id = t.template_id
+              and tc.param_name = l_param('param_name')) param_value
+    from prv_template t
+    where template_namespace = l_param('template_namespace')
+    order by 2;
+
+    return l_cur;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure save_template(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) 
+  is
+    l_template_id number;
+    l_param       prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'template_namespace,template_name');    
+  begin
+
+    begin
+
+      select template_id
+      into l_template_id
+      from prv_template
+      where template_namespace = l_param('template_namespace')
+      and (template_name = l_param('template_name') or (template_name is null and l_param('template_name') is null));
+
+    exception when no_data_found then
+
+      insert into prv_template (template_id, template_namespace, template_name)
+      values (prv_template_id_seq.nextval, l_param('template_namespace'), l_param('template_name'))
+      returning template_id into l_template_id;
+
+    end;
+
+    delete from prv_template_content
+    where template_id = l_template_id;
+
+    forall i in indices of p_names
+    insert into prv_template_content (template_id, param_name, param_value)
+    values (l_template_id, p_names(i), p_values(i));
+
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_template_content_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor
+  is
+    l_cur     sys_refcursor;
+    l_param   prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'template_namespace,template_name');
+  begin
+
+    open l_cur for
+    select param_name, param_value
+    from prv_template_content
+    where template_id = 
+    (
+      select t.template_id
+      from prv_template t
+      where template_namespace = l_param('template_namespace')
+      and template_name = l_param('template_name')
+    );
+
+    return l_cur;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_template_param_val(p_template_namespace varchar2,
+                          p_template_name varchar2,
+                          p_param_name varchar2) return varchar2 is
+    l_res prv_template_content.param_value%type;
+  begin
+
+    select param_value
+    into l_res
+    from prv_template_content
+    where template_id = (select t.template_id
+                          from prv_template t
+                          where template_namespace=p_template_namespace
+                          and template_name=p_template_name)
+    and param_name = p_param_name;
+
+    return l_res;
+
+    exception when no_data_found then
+      return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_template_param_val_cnt(p_template_namespace varchar2,
+                                      p_param_name varchar2,
+                                      p_param_value varchar2) return number is
+    l_res number;
+  begin
+
+    select count(1)
+    into l_res
+    from prv_template_content tc
+    inner join prv_template t on (t.template_id=tc.template_id)
+    where template_namespace=p_template_namespace
+    and param_name = p_param_name
+    and param_value = p_param_value;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure delete_template(p_template_namespace varchar2,
+                            p_template_name varchar2) is
+  begin
+
+    delete from prv_template_content
+    where template_id = (select t.template_id
+                          from prv_template t
+                          where template_namespace=p_template_namespace
+                          and template_name=p_template_name);
+
+    delete from prv_template
+    where template_namespace=p_template_namespace
+    and template_name=p_template_name;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure convert_template(p_template_id number)
+  is
+    l_rec prv_clob_template%rowtype;
+    l_new_template_content clob;
+  begin
+    select * 
+    into l_rec
+    from prv_clob_template t
+    where t.template_id = p_template_id;
+    
+    if (l_rec.template_namespace in ('rate-import','rate-import-us')) then
+      
+      l_new_template_content := prv_utils.convert_template(l_rec.template_content);
+      
+      insert into prv_clob_template
+      (
+        template_id,
+        template_name,
+        template_namespace,
+        template_content
+      )
+      values
+      (
+        prv_clob_template_id_seq.nextval,
+        l_rec.template_name,
+        replace(l_rec.template_namespace,'import','import2'),
+        l_new_template_content
+      );
+    else
+      raise_application_error(-20000, 'template_namespace is not rate-import, rate-import-us');
+    end if;
+    
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_clob_template_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor is
+    l_cur sys_refcursor;
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'template_namespace');
+  begin
+  
+    if l_param('template_namespace') in ('rate-import2','rate-import2-us') then
+    
+      open l_cur for
+      select template_id, template_name, template_namespace
+      from
+      (
+        select 
+          template_id,
+          template_name, 
+          template_namespace,
+          dense_rank () over (partition by template_name order by template_name, template_namespace desc) dr      
+        from prv_clob_template t 
+        where
+          (
+            l_param('template_namespace') = 'rate-import2' 
+            and template_namespace in ('rate-import','rate-import2')
+          )
+          or
+          (
+            l_param('template_namespace') = 'rate-import2-us'
+            and template_namespace in ('rate-import-us','rate-import2-us')
+          )
+      )
+      where dr = 1; -- (if template_name is dublicate then get only template_namespace = rate-import2)
+    
+    else
+
+      open l_cur for
+      select  template_id, template_name, template_namespace
+      from prv_clob_template t
+      where template_namespace = l_param('template_namespace')
+      order by 2;
+      
+    end if;
+
+    return l_cur;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure save_clob_template
+  (
+    p_names             dbms_sql.varchar2_table,
+    p_values            dbms_sql.varchar2_table,
+    p_template_content  blob
+  )
+  is
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'template_namespace,template_name');
+  begin
+
+    update prv_clob_template
+    set template_content = blob2clob(p_template_content)
+    where template_namespace = l_param('template_namespace')
+      and (template_name = l_param('template_name') or (template_name is null and l_param('template_name') is null));
+
+    if sql%rowcount = 0 then
+      insert into prv_clob_template
+      (
+        template_id,
+        template_namespace,
+        template_name,
+        template_content
+      )
+      values
+      (
+        prv_clob_template_id_seq.nextval,
+        l_param('template_namespace'),
+        l_param('template_name'),
+        blob2clob(p_template_content)
+      );
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_clob_template(p_names  dbms_sql.varchar2_table,
+                             p_values dbms_sql.varchar2_table) return clob is
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names,p_values,'template_namespace,template_name,template_id');
+    l_template_content clob;
+  begin
+
+    select template_content
+    into l_template_content
+    from prv_clob_template
+    where
+    (l_param('template_id') is null or template_id = l_param('template_id'))
+    and (l_param('template_name') is null or template_name = l_param('template_name'))
+    and (l_param('template_namespace') is null or template_namespace = l_param('template_namespace'));
+
+    return l_template_content;
+
+    exception
+      when no_data_found then
+        raise_application_error(-20000, prv_utils.get_message('PRV-ERR-TEMPLATE-NOT-FOUND'));
+      when too_many_rows then
+        raise_application_error(-20000, prv_utils.get_message('PRV-ERR-TEMPLATE-TOO-MANY-ROWS'));
+      when others then
+        raise;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure delete_clob_template(p_template_namespace varchar2,
+                          p_template_name varchar2) is
+  begin
+    delete from prv_clob_template
+    where template_namespace = p_template_namespace
+    and (template_name = p_template_name or (template_name is null and p_template_name is null));
+  end;
+  -----------------------------------------------------------------------------------------------
+  function table2str(p_array prv_varchar256_table_t, p_sep varchar2) return varchar2
+  is
+    l_res varchar2(4000);
+  begin
+
+    if p_array is not null and p_array.count > 0 then
+      for i in p_array.first .. p_array.last loop
+        l_res := l_res || p_array(i) || case when i < p_array.last then p_sep end;
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function table2str(p_array prv_number_table_t, p_sep varchar2) return varchar2
+  is
+    l_res varchar2(4000);
+  begin
+
+    if p_array is not null and p_array.count > 0 then
+      for i in p_array.first .. p_array.last loop
+        l_res := l_res || p_array(i) || case when i < p_array.last then p_sep end;
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function table4k2str(p_array prv_varchar4000_table_t, p_sep varchar2) return varchar2
+  is
+    l_res varchar2(4000);
+  begin
+
+    if p_array is not null and p_array.count > 0 then
+      for i in p_array.first .. p_array.last loop
+        l_res := l_res || p_array(i) || case when i < p_array.last then p_sep end;
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function cast_plsqltable2table(p_array dbms_sql.number_table) return prv_number_table_t is
+    l_res prv_number_table_t := prv_number_table_t();
+    j integer := 1;
+  begin
+
+    if p_array.count > 0 then
+      l_res.extend(p_array.count);
+      for i in p_array.first..p_array.last loop
+        l_res(j) := p_array(i);
+        j := j + 1;
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function cast_plsqltable2table(p_array dbms_sql.varchar2_table) return prv_varchar4000_table_t is
+    l_res prv_varchar4000_table_t := prv_varchar4000_table_t();
+    j integer := 1;
+  begin
+
+    if p_array.count > 0 then
+      l_res.extend(p_array.count);
+      for i in p_array.first..p_array.last loop
+        l_res(j) := p_array(i);
+        j := j + 1;
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function cast_table2plsqltable(p_array prv_varchar4000_table_t) return dbms_sql.varchar2_table is
+    l_res dbms_sql.varchar2_table;
+  begin
+
+    if p_array.count > 0 then
+      for i in p_array.first..p_array.last loop
+        l_res(i) := p_array(i);
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function cast_numtable2plsqlnumtable(p_array prv_number_table_t) return dbms_sql.number_table is
+    l_res dbms_sql.number_table;
+  begin
+
+    if p_array.count > 0 then
+      for i in p_array.first..p_array.last loop
+        l_res(i) := p_array(i);
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function cast_plsqltable2str(p_array dbms_sql.varchar2_table, p_sep varchar2 default ',') return varchar2 is
+    l_res varchar2(32767);
+  begin
+
+    if p_array.count > 0 then
+      for i in p_array.first..p_array.last loop
+        if p_array.exists(i) then
+          l_res := substr(l_res || p_array(i) || p_sep, 1, 32767);
+        end if;
+      end loop;
+    end if;
+
+    return case when p_sep is null then l_res else rtrim(l_res, p_sep) end;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function cast_plsqltable2str(p_array dbms_sql.number_table, p_sep varchar2 default ',') return varchar2 is
+    l_res varchar2(32767);
+  begin
+
+    if p_array.count > 0 then
+      for i in p_array.first..p_array.last loop
+        if p_array.exists(i) then
+          l_res := substr(l_res || to_char(p_array(i)) || p_sep, 1, 32767);
+        end if;
+      end loop;
+    end if;
+
+    return case when p_sep is null then l_res else rtrim(l_res, p_sep) end;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function clob2blob(l_clob clob) return blob is
+    l_blob blob;
+    l_dest_offset integer := 1;
+    l_src_offset integer := 1;
+    l_csid number;
+    l_lang_context integer := dbms_lob.default_lang_ctx;
+    l_warning integer;
+  begin
+
+    select nls_charset_id(value)
+    into l_csid
+    from nls_database_parameters
+    where parameter = 'NLS_CHARACTERSET';
+
+    dbms_lob.createtemporary(l_blob, true);
+
+    dbms_lob.converttoblob(l_blob, l_clob, dbms_lob.lobmaxsize, l_dest_offset, l_src_offset, l_csid, l_lang_context, l_warning);
+
+    return l_blob;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function blob2clob(p_blob blob) return clob is
+    l_clob clob;
+    l_dest_offset integer := 1;
+    l_src_offset integer := 1;
+    l_csid number;
+    l_lang_context integer := dbms_lob.default_lang_ctx;
+    l_warning integer;
+  begin
+
+    select nls_charset_id(value)
+    into l_csid
+    from nls_database_parameters
+    where parameter = 'NLS_CHARACTERSET';
+
+    dbms_lob.createtemporary(l_clob, true);
+
+    if dbms_lob.getlength(p_blob) > 0 then
+    dbms_lob.converttoclob(l_clob, p_blob, dbms_lob.lobmaxsize, l_dest_offset, l_src_offset, l_csid, l_lang_context, l_warning);
+    end if;
+
+    return l_clob;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function bfile2clob(p_bfile in out bfile, p_amount number) return clob is
+    l_clob clob;
+    l_dest_offset integer := 1;
+    l_src_offset integer := 1;
+    l_csid number;
+    l_lang_context integer := dbms_lob.default_lang_ctx;
+    l_warning integer;
+  begin
+
+    select nls_charset_id(value)
+    into l_csid
+    from nls_database_parameters
+    where parameter = 'NLS_CHARACTERSET';
+
+    dbms_lob.fileopen(p_bfile);
+
+    dbms_lob.createtemporary(l_clob, true);
+
+    dbms_lob.loadclobfromfile(l_clob, p_bfile, least(nvl(p_amount, dbms_lob.lobmaxsize), dbms_lob.getlength(p_bfile)),
+                                l_dest_offset, l_src_offset, l_csid, l_lang_context, l_warning);
+
+
+    dbms_lob.fileclose(p_bfile);
+
+    return l_clob;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure blob2file(p_file_content blob,p_file_name varchar2,p_file_dir varchar2 default 'DEFAULT_DIR') is
+    l_file_ptr utl_file.file_type;
+    l_pos binary_integer := 1;
+    l_file_length constant binary_integer := dbms_lob.getlength(p_file_content);
+    c_bytes_per_write constant binary_integer := 32767;
+  begin
+
+    l_file_ptr := utl_file.fopen(p_file_dir, p_file_name, 'w', c_bytes_per_write);
+
+    while l_pos < l_file_length
+    loop
+       utl_file.put_raw(l_file_ptr, dbms_lob.substr(p_file_content, c_bytes_per_write, l_pos), true);
+       l_pos := l_pos + c_bytes_per_write;
+    end loop;
+
+    utl_file.fclose(l_file_ptr);
+
+    exception when others then
+      if utl_file.is_open(l_file_ptr) then
+        utl_file.fclose(l_file_ptr);
+      end if;
+      raise;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function file2blob(p_filename varchar2,p_file_dir varchar2 default 'DEFAULT_DIR') return blob
+  is
+    l_filecontent blob := null;
+    l_src_file bfile := bfilename(p_file_dir,p_filename);
+    l_offset number := 1;
+  begin
+    dbms_lob.createtemporary(l_filecontent,true,dbms_lob.session);
+    dbms_lob.fileopen(l_src_file,dbms_lob.file_readonly);
+    dbms_lob.loadblobfromfile (l_filecontent, l_src_file, dbms_lob.getlength(l_src_file),l_offset, l_offset);
+    dbms_lob.fileclose(l_src_file);
+    return l_filecontent;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure clob2file(p_file_content clob,p_file_name varchar2,p_file_dir varchar2 default 'DEFAULT_DIR') is
+  begin
+    blob2file(clob2blob(p_file_content),p_file_name, p_file_dir);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function gen_job_name return varchar2 is
+  begin
+    return dbms_scheduler.generate_job_name('task');
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure start_task
+  (
+    p_action       varchar2,
+    p_task_name    varchar2,
+    p_start_date   date := sysdate,
+    p_task_type_id number := null,
+    p_param_json   varchar2 := null,
+    p_status       number := null,
+    p_enabled      boolean := true,
+    p_max_threads  number := null
+  )
+  is
+    l_task_type_rec prv_task_type%rowtype;
+    l_current_la    number := mon_utils.get_load_avg;
+  begin
+
+    begin
+      select *
+      into l_task_type_rec
+      from prv_task_type
+      where task_type_id = p_task_type_id;
+    exception when no_data_found then
+      null;
+    end;
+    
+    --Check system load
+    if user != 'INVOICE' 
+      and l_current_la > l_task_type_rec.critical_la 
+    then
+      raise_application_error
+      (
+        -20000, 
+        prv_utils.get_message
+        (
+          'ERR-CRITICAL_LA', 
+          trim(to_char(l_current_la, '990D99')), 
+          trim(to_char(l_task_type_rec.critical_la, '990D99'))
+        )
+      );
+    elsif user != 'INVOICE' 
+      and l_current_la > l_task_type_rec.warning_la
+      and nvl(prv_utils.get_key(p_param_json, 'override_la_warning'), '0') != '1'
+    then
+      raise_application_error
+      (
+        -20003, 
+        prv_utils.get_message
+        (
+          'ERR-WARNING_LA', 
+          trim(to_char(l_current_la, '990D99')), 
+          trim(to_char(l_task_type_rec.warning_la, '990D99'))
+        )
+      );
+    end if;
+
+    update_task
+    (
+      p_task_name,
+      nvl(p_status, case when p_start_date > sysdate then c_job_scheduled else c_job_new end),
+      case when p_start_date > sysdate then to_char(p_start_date, prv_var.c_sys_datetime_fmt) end,
+      p_task_type_id,
+      p_param_json,
+      false,
+      p_start_date
+    );
+
+    dbms_scheduler.create_job
+    (
+      job_name =>        p_task_name,
+      job_type =>        'PLSQL_BLOCK',
+      job_action =>      p_action,
+      start_date =>      p_start_date,
+      repeat_interval => null,
+      enabled =>         case when p_max_threads >= 1 then false else p_enabled end,
+      auto_drop =>       true
+    );
+
+    if p_max_threads >= 1 then
+      add_job2chain(p_task_type_id, p_task_name, p_max_threads);
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_job2chain(p_task_type_id number, p_task_name varchar2, p_max_threads number)
+  is
+    l_slot_num      number;
+    l_chain_name    varchar2(30);
+    --
+    function get_slot_num(p_task_type_id number, p_max_threads number) return number
+    is
+      l_res number;
+    begin
+      select max(lev) keep (dense_rank first order by task_count, lev)
+      into l_res
+      from
+      (
+        select 
+          lev,
+          (
+            select count(1)
+            from prv_job_chain
+            where task_type_id = p_task_type_id
+            and slot_num = lev
+          ) task_count
+        from
+        (
+          select level lev
+          from dual
+          connect by level <= p_max_threads
+        )
+      );
+      
+      return l_res;
+    end;
+    --
+  begin
+
+    l_slot_num  := get_slot_num(p_task_type_id, p_max_threads);
+    l_chain_name := 'CHAIN_' || p_task_type_id || '_' || l_slot_num;
+
+    --Add job to chain     
+    insert into prv_job_chain (task_name, task_type_id, slot_num, create_date)
+    values (p_task_name, p_task_type_id, l_slot_num, sysdate);
+      
+    commit;
+      
+    --Try to create chain job
+    begin
+      dbms_scheduler.create_job
+      (
+        job_name        => l_chain_name,
+        job_type        => 'PLSQL_BLOCK',
+        job_action      => 'begin prv_utils.run_chain(' || p_task_type_id || ', ' || l_slot_num || '); end;',
+        start_date      => systimestamp,
+        repeat_interval => null,
+        enabled         => true,
+        auto_drop       => true
+      );
+    exception
+      when others then
+        if sqlcode = -27477 then --Job already exists
+          null; --It's Ok
+        else
+          raise;
+        end if;
+    end;  
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure run_chain(p_task_type_id number, p_slot_num number)
+  is
+    l_task_array prv_varchar256_table_t;
+  begin
+      
+    loop
+    
+      select task_name
+      bulk collect into l_task_array
+      from prv_job_chain
+      where task_type_id = p_task_type_id
+      and slot_num = p_slot_num
+      order by create_date;
+      
+      if l_task_array.count > 0 then
+        for i in l_task_array.first .. l_task_array.last loop
+        
+          begin
+            dbms_scheduler.run_job(l_task_array(i), false);
+          exception when others then
+            if sqlcode in (-27475, -27478) then --Unknown job or job is running
+              null; --It's Ok
+            else
+              raise;
+            end if;            
+          end;
+          
+          wait_for_job(l_task_array(i));
+  
+          delete from prv_job_chain where task_name = l_task_array(i);
+          commit;
+        
+        end loop;
+      else
+        exit;
+      end if;
+
+    end loop;  
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_task_rec(p_task_name varchar2, p_timeout number := null) return prv_task%rowtype
+  is
+    c_sleep_interval  number := 0.1;
+    l_res             prv_task%rowtype;
+  begin
+
+    for i in 1 .. nvl(p_timeout / c_sleep_interval, 1)
+    loop
+
+      begin
+        select *
+        into l_res
+        from prv_task
+        where task_job_name = p_task_name;
+      exception when no_data_found then
+        raise_application_error(-20000, prv_utils.get_message('PRV-ERR-TASK-NOT-FOUND', p_task_name));
+      end;
+
+      if p_timeout is null or l_res.task_status in (c_job_done, c_job_failed, c_job_aborted) then
+        return l_res;
+      end if;
+
+      dbms_lock.sleep(c_sleep_interval);
+
+    end loop;
+
+    raise_application_error(-20000, prv_utils.get_message('PRV-ERR-TASK-WAIT-TIMEOUT', p_task_name));
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_session_cpu_used return number
+  is
+    c_statistic_id  constant number := 19; --CPU used by this session
+    l_res           number;
+  begin
+  
+    select sum(st.value) / 100
+    into l_res
+    from v$session se
+    inner join v$sesstat st on (se.sid = st.sid)
+    where se.audsid = sys_context('userenv', 'sessionid')
+    and statistic# = c_statistic_id;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function update_task(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return varchar2
+  is
+    l_param   prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'task_name,status,result,type_id,param_json');
+  begin
+    l_param('task_name') := nvl(l_param('task_name'), prv_utils.gen_job_name);
+    prv_utils.update_task
+    (
+      l_param('task_name'),
+      l_param('status'),
+      l_param('result'),
+      l_param('type_id'),
+      l_param('param_json'),
+      false
+    );
+    return l_param('task_name');
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_task
+  (
+    p_task_name       varchar2,
+    p_status          number,
+    p_result          varchar2,
+    p_type_id         number := null,
+    p_param_json      varchar2 := null,
+    p_update_app_info boolean := true,
+    p_start_time      date := null
+  )
+  is
+    pragma autonomous_transaction;
+    l_scheduled_start_date  date := extract_from_json(p_param_json, 'task_start_time');
+    l_task_owner_user_id    number := extract_from_json(p_param_json, 'task_owner_user_id');
+    l_cpu_used              number := get_session_cpu_used();
+  begin
+
+
+    merge into prv_task
+    using dual
+      on (task_job_name = p_task_name)
+    when matched then
+      update set
+        task_status = p_status,
+        task_result = p_result,
+        task_param_json = nvl(p_param_json, task_param_json),
+        task_last_update_time = sysdate,
+        task_start_time =
+          case
+            when p_status = c_job_new and task_status = c_job_pending
+              then sysdate
+            else task_start_time
+          end,
+        cpu_used = l_cpu_used
+    when not matched then
+      insert
+      (
+        task_job_name,
+        task_result,
+        task_status,
+        task_type_id,
+        task_param_json,
+        task_start_time,
+        task_owner_user_id
+      )
+      values
+      (
+        p_task_name,
+        p_result,
+        p_status,
+        nvl(p_type_id,0),
+        p_param_json,
+        case
+          when p_status = c_job_new
+            then sysdate
+          when p_status = c_job_pending
+            then l_scheduled_start_date
+          when p_status = c_job_scheduled
+            then p_start_time
+        end,
+        nvl(l_task_owner_user_id, sys_context('user_ctx', 'user_id'))
+      );
+
+    commit;
+
+    if p_update_app_info then
+      declare
+        l_module_name varchar2(256);
+      begin
+        select task_type_name || ' (' || p_task_name || ')'
+        into l_module_name
+        from prv_task_type tt
+        where tt.task_type_id = (select t.task_type_id from prv_task t where t.task_job_name = p_task_name);
+        dbms_application_info.set_module(l_module_name, p_result);
+      exception when no_data_found then
+        null;
+      end;
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_task_param(p_task_name varchar2) return prv_utils.param_t is
+    l_param_json  varchar2(4000);
+  begin
+
+    select task_param_json
+    into l_param_json
+    from prv_task
+    where task_job_name = p_task_name;
+
+    return prv_utils.json2param(l_param_json);
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure init_task_env(p_task_name varchar2)
+  is
+    l_user_id bas_user.user_id%type;
+  begin
+
+    select task_owner_user_id
+    into l_user_id
+    from prv_task
+    where task_job_name = p_task_name;
+
+    if l_user_id is not null then
+      bas_utils.init_user_env(l_user_id);
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function check_task(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table)
+  return sys_refcursor
+  is
+    l_cur   sys_refcursor;
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'task_job_name');
+  begin
+
+    open l_cur for
+    select task_status, task_result, task_last_update_time, task_param_json, task_start_time
+    from prv_task
+    where (l_param('task_job_name') is null or task_job_name = l_param('task_job_name'));
+
+    return l_cur;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure abort_task(p_task_name varchar2) is
+    l_info varchar2(4000);
+  begin
+
+    begin
+      dbms_scheduler.stop_job(job_name => p_task_name, force => true);
+    exception when others then
+      if sqlcode = -27366 then
+        dbms_scheduler.drop_job(job_name => p_task_name);
+      elsif sqlcode = -27475 then
+        --Search for error
+        select (select additional_info
+          from user_scheduler_job_run_details
+          where job_name = p_task_name
+          and rownum = 1)
+        into l_info
+        from dual;
+
+        if l_info is not null then
+          prv_utils.update_task(p_task_name, prv_utils.c_job_failed, prv_utils.translate_error_msg(l_info));
+          return;
+        end if;
+      elsif sqlcode = -600 then
+        dbms_lock.sleep(1);
+        abort_task(p_task_name);
+      else
+        raise;
+      end if;
+    end;
+
+    update_task(p_task_name, c_job_aborted, null);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_task_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor
+  is
+    l_param         prv_utils.param_t;
+    l_key           varchar2(4000);
+    l_sql           varchar2(32767);
+    l_json_cond     varchar2(32767);
+    l_cursor        integer := dbms_sql.open_cursor;
+    l_orderby       varchar2(4000);
+    l_value         varchar2(4000);
+    l_json_binds    dbms_sql.varchar2_table;
+    l_dummy         integer;
+    l_curr_user_id  number := bas_utils.get_user_id;
+    l_user_id_list  varchar2(4000);
+  begin
+
+    l_param :=
+      prv_utils.transform_params
+      (
+        p_names,
+        p_values,
+        'user_id,has_root_role,task_type_id,task_status_id,user_name,first_rec,rec_count,orderby_clause,'
+        || 'task_start_time1,task_start_time2,task_last_update_time1,task_last_update_time2,task_job_name'
+      );
+    l_param('user_id') := nvl(l_param('user_id'), bas_utils.get_user_id);
+    l_orderby := nvl(l_param('orderby_clause'), 'task_start_time desc nulls last');
+
+    l_key := l_param.first;
+    while l_key is not null loop
+      if l_key like 'json%' and l_param(l_key) is not null then
+        l_value := lower(replace(l_param(l_key), '*', '%'));
+        if  instr(l_value, '%') > 0 then
+          l_json_cond :=
+            l_json_cond
+            || ' and lower(prv_utils.extract_from_json(task_param_json, ''' || substr (l_key, 6) || ''')) like :json'
+            || to_char(l_json_binds.count + 1);
+        else
+          l_value := '%,' || l_param(l_key) || ',%';
+          l_json_cond :=
+            l_json_cond
+            || ' and '','' || prv_utils.extract_from_json(task_param_json, ''' ||  substr (l_key, 6) || ''') || '','''
+            || ' like :json' || to_char(l_json_binds.count + 1);
+        end if;
+        l_json_binds(l_json_binds.count + 1) := l_value;
+      end if;
+      l_key := l_param.next(l_key);
+    end loop;
+
+    l_sql := 'select
+      task_job_name,
+      task_type_id,
+      task_type_name,
+      task_last_update_time,
+      task_result,
+      task_status,
+      task_param_json,
+      user_name,
+      task_start_time,
+      :l_user_id_list user_id_list,
+      decode(rownum, 1, cnt) cnt
+    from
+    (
+      select
+        t.*,
+        row_number () over (order by ' || l_orderby || ') rn,
+        count (*) over() cnt
+      from
+      (
+        select
+          t.*, tt.task_type_name,
+          (case when prv_utils.extract_from_json(t.task_param_json, ''autorerating'') = 1 and t.task_type_id = 11
+            then ''Autorerating'' else (select user_name from bas_user where user_id = task_owner_user_id) end) user_name
+        from prv_task t
+        inner join prv_task_type tt on (tt.task_type_id = t.task_type_id)
+        where (task_owner_user_id = :l_user_id or user = ''INVOICE'' or :l_has_root_role = 1 or :l_view_all_data = 1 or :l_view_and_edit_all_data = 1)' ||
+          case when l_param('task_job_name') is not null then ' and t.task_job_name = :task_job_name' end ||
+          case when l_param('task_type_id') is not null then ' and t.task_type_id = :task_type_id' end ||
+          case when l_param('task_start_time1') is not null then ' and t.task_start_time >= :start_time1' end ||
+          case when l_param('task_start_time2') is not null then ' and t.task_start_time <= :start_time2' end ||
+          case when l_param('task_last_update_time1') is not null then ' and t.task_last_update_time >= :last_update_time1' end ||
+          case when l_param('task_last_update_time2') is not null then ' and t.task_last_update_time <= :last_update_time2' end ||
+          case when l_param('task_status_id') is not null then ' and t.task_status = :task_status_id' end || '
+      ) t
+      where 1 = 1' ||
+        case when l_param('user_name') is not null then ' and lower(user_name) like replace (lower (:user_name), ''*'', ''%'')' end ||
+        case
+          when l_param.exists('json_autorerating') then
+            ' and (task_type_id != 11 or prv_utils.extract_from_json(t.task_param_json, ''autorerating'') is null)'
+        end ||
+        l_json_cond || '
+    )' ||
+    case when l_param('first_rec') is not null and l_param('rec_count') is not null
+      then 'where rn >= :first_rec and rn < :first_rec + :rec_count' end || '
+    order by rn';
+
+    dbms_sql.parse(l_cursor, l_sql, dbms_sql.native);
+
+    for i in 1 .. l_json_binds.count loop
+      dbms_sql.bind_variable(l_cursor, ':json' || to_char(i), l_json_binds(i));
+    end loop;
+
+    dbms_sql.bind_variable(l_cursor, ':l_user_id', l_param('user_id'));
+    dbms_sql.bind_variable(l_cursor, ':l_has_root_role', l_param('has_root_role'));
+    dbms_sql.bind_variable(l_cursor, ':l_view_and_edit_all_data', bas_utils.has_role(prv_var.c_vpd_full, l_param('user_id')));
+    dbms_sql.bind_variable(l_cursor, ':l_view_all_data', bas_utils.has_role(prv_var.c_vpd_rw_own, l_param('user_id')));
+
+    if instr (l_sql, ':task_job_name') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':task_job_name', l_param('task_job_name'));
+    end if;
+    if instr (l_sql, ':task_type_id') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':task_type_id', to_number(l_param('task_type_id')));
+    end if;
+    if instr (l_sql, ':task_status_id') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':task_status_id', to_number(l_param('task_status_id')));
+    end if;
+    if instr (l_sql, ':user_name') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':user_name', l_param('user_name'));
+    end if;
+    if instr (l_sql, ':first_rec') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':first_rec', to_number(l_param('first_rec')));
+    end if;
+    if instr (l_sql, ':rec_count') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':rec_count', to_number(l_param('rec_count')));
+    end if;
+    if instr (l_sql, ':start_time1') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':start_time1', to_date(l_param('task_start_time1'), prv_var.c_sys_datetime_fmt));
+    end if;
+    if instr (l_sql, ':start_time2') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':start_time2', to_date(l_param('task_start_time2'), prv_var.c_sys_datetime_fmt));
+    end if;
+    if instr (l_sql, ':last_update_time1') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':last_update_time1', to_date(l_param('task_last_update_time1'), prv_var.c_sys_datetime_fmt));
+    end if;
+    if instr (l_sql, ':last_update_time2') > 0 then
+      dbms_sql.bind_variable(l_cursor, ':last_update_time2', to_date(l_param('task_last_update_time2'), prv_var.c_sys_datetime_fmt));
+    end if;
+    if instr (l_sql, ':l_user_id_list') > 0 then
+      begin
+        select listagg(task_owner_user_id, ',') within group (order by user_name)
+        into l_user_id_list
+        from
+        (
+          select distinct task_owner_user_id
+          from prv_task
+          where task_owner_user_id != l_curr_user_id
+            and (l_param('task_type_id') is null or task_type_id = to_number(l_param('task_type_id')))
+        ) t
+        left join bas_user u on (t.task_owner_user_id = u.user_id);
+      exception
+        when no_data_found then
+          null;
+      end;
+      if l_user_id_list is not null then
+        l_user_id_list := to_char(l_curr_user_id) || ',' || l_user_id_list;
+      else
+        l_user_id_list := to_char(l_curr_user_id);
+      end if;
+      dbms_sql.bind_variable(l_cursor, ':l_user_id_list', l_user_id_list);
+    end if;
+
+    l_dummy := dbms_sql.execute(l_cursor);
+
+    return dbms_sql.to_refcursor(l_cursor);
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure cleanup_scheme
+  is
+    c_log_store_days          constant number := prv_utils.get_param('PARAM-LOG-STORE-DAYS');
+    c_rate_log_store_days     constant number := prv_utils.get_param('PARAM-RATE-LOG-STORE-DAYS');
+    c_buffered_edr_store_days constant number :=  nvl(prv_utils.get_param('SMS-STORE_BUFFERED_DAYS_CNT'), 30);
+    c_password_history_days   constant number :=  nvl(prv_utils.get_param('SEC-PASSWORD_CACHE_EXPIRY_PERIOD'), 90);
+    c_rate_log_table          constant varchar2(30) := 'LOG_RAT_RATE';
+    --
+    l_affected_rows           number := 0;
+    --
+    procedure sleep
+    is
+    begin
+      dbms_lock.sleep(120);
+    end;
+  begin
+
+    dbms_application_info.set_module('Alice', null);
+
+    prv_aux_utils.post_params;
+
+    dbms_application_info.set_module('Delete old logs', null);
+
+    check_license_stat_usage;
+
+    check_license_sms_usage;
+
+    execute immediate 'alter session set ddl_lock_timeout = 600';
+
+    delete from prv_task
+    where task_job_name in
+    (
+      select task_job_name
+      from
+      (
+        select task_job_name, row_number() over (partition by task_type_id order by task_last_update_time desc) rn
+        from prv_task t
+      )
+      where rn > 100
+    )
+    and task_last_update_time < sysdate - c_log_store_days;
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    delete from prv_debug
+    where debug_time < sysdate - c_log_store_days;
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+    
+    sleep;
+
+    --Delete logs
+    for i in
+    (
+      select table_name
+      from user_tables
+      where table_name like 'LOG\_%' escape '\'
+        and table_name != c_rate_log_table
+    )
+    loop
+      execute immediate 'delete from '||i.table_name||' where log_time < sysdate - :1' using c_log_store_days;
+      l_affected_rows := l_affected_rows + sql%rowcount;
+      commit;
+    end loop;
+    
+    sleep;
+
+    --Delete old data from prv_api_exec
+    execute immediate 'delete from prv_api_exec where exec_date < sysdate - :1' using c_log_store_days;
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+    
+    sleep;
+
+    --Delete old RAT_RATE logs
+    for i in
+    (
+      select partition_name
+      from
+      (
+        select partition_name, prv_utils.get_part_date(c_rate_log_table, partition_name) part_date
+        from user_tab_partitions
+        where table_name = c_rate_log_table
+          and partition_name != 'LAST_PARTITION' --To prevent ORA-14758: Last partition in the range section cannot be dropped
+      )
+      where part_date < sysdate - c_rate_log_store_days
+      order by part_date
+    )
+    loop
+      execute immediate 'alter table ' || c_rate_log_table || ' drop partition (' || i.partition_name || ')';
+    end loop;
+    
+    sleep;
+
+    execute immediate 'delete from rut_processed_file_idx where file_created < sysdate - 365';
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    execute immediate 'delete from sta_exp_data where task_name not in (select task_job_name from prv_task)';
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    execute immediate 'delete from rpt_report_user_exec where report_exec_date < add_months(sysdate, -3)';
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    execute immediate 'delete from bas_reset_pwd where reset_date < sysdate - 1';
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    execute immediate
+      'delete from sms_cdr where cdr_time >= trunc(sysdate - :1 - 1) and cdr_time < trunc(sysdate - :2) and cdr_edr_type = :3'
+    using c_buffered_edr_store_days, c_buffered_edr_store_days, sms_var.c_edr_buffered_type;
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+    
+    sleep;
+    
+    execute immediate 'delete from sta_raw_error_log where to_date(cdr_time, ''YYYY MM DD HH24:MI:SS'') < sysdate - 7';
+    commit;
+
+    execute immediate 'begin clp_utils.clear_old_data; end;';
+    commit;
+
+    execute immediate 'begin bas_import_utils.delete_old_files; end;';
+    commit;
+
+    execute immediate 'begin sms_utils.remove_refbook_duplicates; end;';
+    commit;
+
+    execute immediate 'begin sms_rate_utils.cleanup_rate_note; end;';
+    commit;
+
+    execute immediate 'begin sms_recon_utils.remove_old_tasks; end;';
+    commit;
+
+    execute immediate 'begin sms_cube_utils.archive_edr; end;';
+    
+    sleep;
+    
+    --Drop old partitions
+    execute immediate 'begin sta_utils.drop_old_partitions; end;';
+    
+    --Execute deferred_actions
+    for i in (select rowid rid, action_sql from prv_deferred_action order by create_date) 
+    loop
+    
+      begin
+      
+        execute immediate i.action_sql;
+        delete from prv_deferred_action where rowid = i.rid;
+        commit;
+    
+      exception when others then
+        prv_utils.save_debug
+        (
+          'Deferred action',
+          'Error while executing deferred action: ' || i.action_sql || chr(13) || chr(10)
+          || dbms_utility.format_error_stack || chr(13) || chr(10)
+          || dbms_utility.format_error_backtrace,
+          prv_utils.c_debug_error
+        );        
+      end;
+    
+    end loop;
+
+    --Delete old EDR file history
+    execute immediate 'delete from sms_cdr_file_status where recv_date < sysdate - :1' using c_log_store_days;
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    --Delete old password history
+    execute immediate 'delete from bas_password_cache where pwd_created < sysdate - :1' using c_password_history_days;
+    l_affected_rows := l_affected_rows + sql%rowcount;
+    commit;
+
+    -- execute immediate 'begin sms_cdr_utils.archive_cdr_files; end;'; -- #23576
+
+    execute immediate 'begin sms_utils.sms_channel_status_cleanup; end;';
+
+    if prv_utils.get_param('STA-CDR_SMART_GW_LIST') != 'null' then
+      execute immediate 'begin sta_etl_utils.archive_smart_cdr; end;';
+    end if;
+
+    prv_utils.save_debug('Cleanup Scheme', 'Deleted logs row count: ' || l_affected_rows);
+
+  exception
+
+    when others then
+      prv_utils.save_debug
+      (
+        'Cleanup Scheme',
+        'Error while deleting logs:' || chr(13) || chr(10)
+        || dbms_utility.format_error_stack || chr(13) || chr(10)
+        || dbms_utility.format_error_backtrace,
+        prv_utils.c_debug_error
+      );
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure init_params
+  (
+    p_param in out nocopy prv_utils.param_t,
+    p_param_str varchar2,
+    p_use_not_exists_val boolean := null
+  )
+  is
+    l_param_list dbms_sql.varchar2_table := prv_utils.str2plsqltable(p_param_str, ',');
+  begin
+
+    --Init params
+    if l_param_list.count > 0 then
+      for i in l_param_list.first..l_param_list.last loop
+        if not p_param.exists(l_param_list(i)) then
+          p_param(l_param_list(i)) := case when p_use_not_exists_val then prv_var.c_not_exists_val else null end;
+        end if;
+      end loop;
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function transform_params
+  (
+    p_names dbms_sql.varchar2_table,
+    p_values dbms_sql.varchar2_table,
+    p_not_mandatory_params varchar2 default null,
+    p_use_not_exists_val boolean := null
+  )
+  return param_t is
+    l_param param_t;
+  begin
+
+    init_params(l_param, p_not_mandatory_params, p_use_not_exists_val);
+
+    if p_names.count > 0 then
+     for i in p_names.first..p_names.last loop
+      l_param(p_names(i)) := p_values(i);
+     end loop;
+    end if;
+
+    return l_param;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure transform_params(p_param prv_utils.param_t,
+                            p_names out dbms_sql.varchar2_table,
+                            p_values out dbms_sql.varchar2_table) is
+    l_key varchar2(4000);
+  begin
+    l_key := p_param.first;
+    loop
+      exit when l_key is null;
+      p_names(p_names.count+1) := l_key;
+      p_values(p_values.count+1) := p_param(l_key);
+      l_key := p_param.next(l_key);
+    end loop;
+   end;
+  -----------------------------------------------------------------------------------------------
+  function instr_ex(p_str varchar2, p_char varchar2, p_start_pos number) return binary_integer is
+    l1 binary_integer := instr(p_str, p_char, p_start_pos);
+    l2 binary_integer := instr(p_str, '\'||p_char, p_start_pos);
+  begin
+    if l1 = l2 + 1 then
+      return instr_ex(p_str, p_char, l1+1);
+    else
+      return l1;
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function extract_from_json(p_json varchar2, p_param_name varchar2) return varchar2 is
+    l_param_name varchar2(256) := '"'||p_param_name||'":';
+    l_substr varchar2(4000);
+  begin
+    if instr(p_json, l_param_name) > 0 then
+      l_substr := ltrim(substr(p_json, instr(p_json, l_param_name) + length(l_param_name)));
+      if substr(l_substr, 1, 1) = '"' then
+        return shield_unshield(substr(l_substr, 2, instr_ex(l_substr, '"', 2)-2), 2);
+      elsif substr(l_substr, 1, 1) = '[' then
+        return substr(l_substr, 1, instr(l_substr, ']'));
+      else
+        return substr(l_substr, 1, case when instr(l_substr, ',', 2)>0
+                                    then instr(l_substr, ',', 2)
+                                    else instr(l_substr, '}', 2) end - 1);
+      end if;
+    else
+      return null;
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function exec_os_command(p_command varchar2) return varchar2 is
+  begin
+    return exec_os_command(p_command, prv_utils.get_env('ORACLE_HOME'));
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure exec_os_command(p_command varchar2) is
+  begin
+    dbms_output.put_line(substr(exec_os_command(p_command),1,1000));
+  end;
+  -----------------------------------------------------------------------------------------------
+  function run_shell_script(p_script varchar2) return varchar2 is
+    l_file_name varchar2(256) := prv_utils.get_directory_path('DEFAULT_DIR')||'/temp_'||prv_utils.get_random_string(6)||'.sh';
+    l_script varchar2(32767) := p_script;
+    l_out varchar2(32767);
+  begin
+    if l_script not like '#!%' then
+      l_script := '#!/bin/sh'||chr(10)||l_script;
+    end if;
+    prv_utils.write_file(l_file_name, prv_utils.clob2blob(l_script));
+    prv_utils.exec_os_command('chmod 700 '||l_file_name);
+    l_out := prv_utils.exec_os_command(l_file_name);
+    prv_utils.delete_file(l_file_name);
+    return l_out;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function file_exists(p_dir varchar2, p_filename varchar2) return boolean is
+   l_exists boolean;
+   l_flen number;
+   l_bsize number;
+  begin
+    utl_file.fgetattr(p_dir, p_filename, l_exists, l_flen, l_bsize);
+    return l_exists;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function request_lock(p_lock_name varchar2, p_timeout number := 0, p_release_on_commit boolean := false) return boolean is
+    l_handle varchar2(128);
+  begin
+    dbms_lock.allocate_unique(p_lock_name, l_handle);
+     return dbms_lock.request(lockhandle => l_handle, timeout => p_timeout, release_on_commit => p_release_on_commit) in (0,4);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function release_lock(p_lock_name varchar2) return boolean is
+    l_handle varchar2(128);
+  begin
+    dbms_lock.allocate_unique(p_lock_name, l_handle);
+    return dbms_lock.release(lockhandle => l_handle) = 0;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_field_val(p_rec varchar2, p_field_num integer, p_sep varchar2 default chr(1)) return varchar2 is
+  begin
+    return rtrim(regexp_substr(p_rec, '[^' || p_sep || ']*($|' || p_sep || ')', 1, p_field_num), p_sep);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_directory_path(p_dir_name varchar2) return varchar2 is
+    l_directory_path varchar2(4000);
+  begin
+    select directory_path
+    into l_directory_path
+    from all_directories
+    where directory_name = p_dir_name;
+
+    return l_directory_path;
+
+    exception when no_data_found then
+      return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_directory_name(p_dir_path varchar2) return varchar2 is
+    l_directory_name varchar2(4000);
+  begin
+    select directory_name
+    into l_directory_name
+    from all_directories
+    where directory_path = p_dir_path;
+
+    return l_directory_name;
+
+    exception when no_data_found then
+      return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_csv_row_list(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) return sys_refcursor is
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'dir_path,file_name,rec_cnt,separator');
+    l_cur sys_refcursor;
+    l_bfile bfile := bfilename(get_directory_name(l_param('dir_path')), l_param('file_name'));
+    l_clob clob;
+    l_sql varchar2(32767) := 'select ';
+    c_record_maxsize constant pls_integer := 4000;
+    c_csv_column_max_cnt constant number := 70;
+    c_row_regexp varchar2(16);
+    c_col_regexp varchar2(16);
+  begin
+
+    l_param('separator') := nvl(l_param('separator'), ';');
+    c_row_regexp := '[^'||prv_var.c_nl||']+';
+    c_col_regexp := '[^'||l_param('separator')||']*['||l_param('separator')||']';
+    l_clob := prv_utils.bfile2clob(l_bfile, l_param('rec_cnt')*c_record_maxsize);
+
+    for i in 1..c_csv_column_max_cnt loop
+      l_sql := l_sql || 'ltrim(rtrim(regexp_substr(val,'''||c_col_regexp||''',1,'||i||'),''"'||l_param('separator')||'''),''"'') col'||to_char(i, 'FM00')||','||prv_var.c_nl;
+    end loop;
+
+    l_sql := rtrim(l_sql, ','||prv_var.c_nl)||'
+    from
+    (
+      select rtrim(dbms_lob.substr(regexp_substr(str,'''||c_row_regexp||''',1,level),4000,1),'''||chr(13)||chr(10)||''')||'''||l_param('separator')||''' val
+      from
+      (
+        select :p_clob as str
+        from dual
+      )
+      connect by level<=:p_rec_cnt
+    )';
+
+    open l_cur for l_sql using l_clob, l_param('rec_cnt');
+
+    return l_cur;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure do_abstract_call(p_call_code varchar2, p_param varchar2) is
+    l_call_procedure prv_abstract_call.call_procedure%type;
+  begin
+    select call_procedure
+    into l_call_procedure
+    from prv_abstract_call
+    where call_code = p_call_code;
+
+    execute immediate 'begin '||l_call_procedure||'(:p); end;' using p_param;
+
+    exception when no_data_found then
+      null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function is_primary return number is
+    l_role varchar2(16);
+  begin
+    select database_role
+    into l_role
+    from v$database;
+
+    return case when l_role = 'PRIMARY' then 1 else 0 end;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function convert_date(p_source_date date, p_from_tz varchar2, p_to_tz varchar2 default get_param('PARAM-SYS-TIMEZONE-NAME')) return date is
+  begin
+    return p_source_date + prv_utils.get_tz_offset_minutes(p_from_tz, p_to_tz, p_source_date)/1440;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure reset_db_tz is
+    l_tz_name varchar2(256) := get_server_tz_name;
+    l_offset number := get_tz_offset_minutes('GMT', l_tz_name, sysdate)/60;
+  begin
+
+    if nvl(prv_utils.get_param('PARAM-SYS-TIMEZONE-NAME'),'#') <> l_tz_name then
+      prv_utils.update_param('PARAM-SYS-TIMEZONE-NAME', l_tz_name, 0);
+    end if;
+
+    if prv_utils.get_param('PARAM-SYS-TIMEZONE') <> l_offset then
+      prv_utils.update_param('PARAM-SYS-TIMEZONE', l_offset, 0);
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_env(p_env_name varchar2) return varchar2 is
+    l_val varchar2(4000);
+  begin
+    dbms_system.get_env(p_env_name, l_val);
+    return l_val;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_link(p_url varchar2) return clob is
+    l_req utl_http.req;
+    l_resp utl_http.resp;
+    l_value varchar2(1024);
+    l_res clob;
+  begin
+    l_req := utl_http.begin_request(p_url);
+    utl_http.set_header(l_req, 'User-Agent', 'Mozilla/4.0');
+    l_resp := utl_http.get_response(l_req);
+    loop
+      utl_http.read_line(l_resp, l_value, true);
+      l_res := l_res || l_value;
+    end loop;
+    utl_http.end_response(l_resp);
+  exception
+    when utl_http.end_of_body then
+      utl_http.end_response(l_resp);
+      return l_res;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function check_job_enabled(p_job_name varchar2) return boolean is
+    l_job_enabled user_scheduler_jobs.enabled%type;
+  begin
+    --Check job is active
+    select enabled
+    into l_job_enabled
+    from user_scheduler_jobs
+    where job_name = upper(p_job_name);
+    return l_job_enabled = 'TRUE';
+    exception when no_data_found then
+      return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function check_job_running(p_job_name varchar2) return boolean is
+    l_job_state user_scheduler_jobs.state%type;
+  begin
+    --Check job is active
+    select state
+    into l_job_state
+    from user_scheduler_jobs
+    where job_name = upper(p_job_name);
+    return l_job_state = 'RUNNING';
+    exception when no_data_found then
+      return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function next_date(p_fmt varchar2, p_date date, p_step number default 1) return date deterministic is
+  begin
+    return case p_fmt when 'MM'   then add_months(trunc(p_date,p_fmt), p_step)
+                      when 'DAY'  then trunc(p_date,p_fmt) + 7*p_step
+                      when 'DD'   then trunc(p_date,p_fmt) + p_step
+                      when 'HH24' then trunc(p_date,p_fmt) + p_step/24
+                      when 'MI'   then trunc(p_date,p_fmt) + p_step/1440 end;
+  end;
+
+  -----------------------------------------------------------------------------------------------
+  function translit(p_str varchar2) return varchar2 is
+    l_str varchar2(4000) := p_str;
+    l_russian_letters prv_number_table_t := prv_number_table_t
+    (
+      53424, 53425, 53426, 53427, 53428,
+      53429, 53649, 53430, 53431, 53432,
+      53433, 53434, 53435, 53436, 53437,
+      53438, 53439, 53632, 53633, 53634,
+      53635, 53636, 53637, 53638, 53639,
+      53640, 53641, 53642, 53643, 53644,
+      53645, 53646, 53647, 53392, 53393,
+      53394, 53395, 53396, 53397, 53377,
+      53398, 53399, 53400, 53401, 53402,
+      53403, 53404, 53405, 53406, 53407,
+      53408, 53409, 53410, 53411, 53412,
+      53413, 53414, 53415, 53416, 53417,
+      53418, 53419, 53420, 53421, 53422,
+      53423
+    );
+    l_eng_analogs prv_varchar16_table_t := prv_varchar16_table_t
+    (
+      'a', 'b', 'v', 'g', 'd',
+      'e', 'e', 'zh', 'z', 'i',
+      'y', 'k', 'l', 'm', 'n',
+      'o', 'p', 'r', 's', 't',
+      'u', 'f', 'kh', 'ts', 'ch',
+      'sh', 'shch', '''', 'y', '''',
+      'e', 'ju', 'ja', 'A', 'B',
+      'V', 'G', 'D', 'E', 'E',
+      'Zh', 'Z', 'I', 'Y', 'K',
+      'L', 'M', 'N', 'O', 'P',
+      'R', 'S', 'T', 'U', 'F',
+      'Kh', 'Ts', 'Ch', 'Sh', 'Shch',
+      '''', 'Y', '''', 'E', 'Ju',
+      'Ja'
+    );
+  begin
+    for i in l_russian_letters.first..l_russian_letters.last loop
+      l_str := replace(l_str, chr(l_russian_letters(i)), l_eng_analogs(i));
+    end loop;
+    return l_str;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_valid_filename(p_str varchar2) return varchar2 is
+  begin
+    return substr(regexp_replace(regexp_replace(p_str, '[[:space:]+[:blank:]+,]+', '_'), '[^([:alnum:]|_|.)]'), 1, 128);
+  end;
+  -----------------------------------------------------------------------------------------------
+  --Deprecated, use prv_var.c_cpu_count
+  function get_cpu_count return number is
+  begin
+    return prv_var.c_cpu_count;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_job_list return sys_refcursor is
+    l_cur sys_refcursor;
+    c_def_timestamp_fmt varchar2(30) := 'YYYY.MM.DD HH24:MI:SS TZH:TZM';
+  begin
+    open l_cur for
+    select job_name, comments, repeat_interval, state,
+      to_char(last_start_date, c_def_timestamp_fmt) last_start_date,
+      to_char(last_run_duration) last_run_duration,
+      to_char(next_run_date, c_def_timestamp_fmt) next_run_date
+    from user_scheduler_jobs
+    where repeat_interval is not null
+    order by 1;
+    return l_cur;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_job(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table) is
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'job_name,action,repeat_interval');
+  begin
+
+    if l_param('action') = 'enable' then
+      dbms_scheduler.enable(l_param('job_name'));
+    elsif l_param('action') = 'disable' then
+      dbms_scheduler.disable(l_param('job_name'), true);
+    elsif l_param('action') = 'run' then
+      dbms_scheduler.run_job(l_param('job_name'), false);
+    elsif l_param('action') = 'repeat_interval' then
+      dbms_scheduler.set_attribute(l_param('job_name'), 'repeat_interval', l_param('repeat_interval'));
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure push2queue(p_array in out nocopy prv_varchar30_table_t, p_val varchar2, p_array_size number) is
+  begin
+
+    if p_array.count < p_array_size then
+      p_array.extend;
+      p_array(p_array.last) := p_val;
+    elsif p_array.count = p_array_size then
+      for i in p_array.first..p_array.last - 1 loop
+        p_array(i) := p_array(i+1);
+      end loop;
+      p_array(p_array.last) := p_val;
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_stb_configuration(p_tns_alias varchar2 := null) return varchar2 is
+    l_tns_alias varchar2(256) := nvl(p_tns_alias, prv_utils.get_param('PARAM-TNS_ALIAS'));
+  begin
+    l_tns_alias := case when substr(l_tns_alias, 1, 1) <> '@' then '@'||l_tns_alias else l_tns_alias end;
+    return prv_utils.run_shell_script('dgmgrl /'||l_tns_alias||' "show configuration"');
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_part_date(p_table_name varchar2, p_part_name varchar2) return date as
+  begin
+    for i in (select high_value from user_tab_partitions where table_name = p_table_name and partition_name = p_part_name) loop
+      return to_date(substr(i.high_value, 11, 19), 'YYYY-MM-DD HH24:MI:SS');
+    end loop;
+    return null;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_db_open_mode(p_dummy_param varchar2 := null) return varchar2
+  is
+    l_open_mode varchar2(30);
+  begin
+    select open_mode into l_open_mode from v$database;
+    return l_open_mode;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function parse_csv(p_file_path varchar2, p_sep varchar2, p_limit_page_count number := null) return prv_common_table_t
+  is
+    l_res       prv_common_table_t := prv_common_table_t();
+    l_buf       prv_common_table_t;
+    l_file_path varchar2(256) := p_file_path;
+    l_page_cnt  number := 0;
+  begin
+
+    --Add path to default dir
+    if substr(l_file_path, 1, 1) <> '/' then
+      l_file_path := prv_utils.get_directory_path('DEFAULT_DIR') || '/' || l_file_path;
+    end if;
+
+    java_init_csv_parser(l_file_path, p_sep);
+
+    loop
+      l_buf := java_fetch_csv_records;
+      exit when l_buf.count = 0 or l_page_cnt >= p_limit_page_count;
+      l_res := l_res multiset union l_buf;
+      l_page_cnt := l_page_cnt + 1;
+      l_buf.delete;
+    end loop;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function convert_sort_expression(p_orderby_clause varchar2, p_mapping_str varchar2)
+  return varchar2
+  is
+    l_mapping_array dbms_sql.varchar2_table;
+    l_orderby_array dbms_sql.varchar2_table;
+    l_src_col       varchar2(30);
+    l_dst_col       varchar2(30);
+    l_col_num       varchar2(30);
+    l_sort          varchar2(30);
+    l_param         param_t;
+  begin
+
+    if p_mapping_str is not null and p_orderby_clause is not null then
+
+      l_mapping_array := prv_utils.str2plsqltable(p_mapping_str, ',');
+      l_orderby_array := prv_utils.str2plsqltable(p_orderby_clause, ',');
+
+      --Prepare mapping array
+      for i in l_mapping_array.first .. l_mapping_array.last loop
+
+        --Example of mapping expression: '50>3'
+        l_src_col := prv_utils.extract_val(l_mapping_array(i), '>', 1);
+        l_dst_col := prv_utils.extract_val(l_mapping_array(i), '>', 2);
+
+        if l_src_col is null or l_dst_col is null then
+          raise_application_error(-20000, 'Invalid mapping expression: ' || l_mapping_array(i) || ', expected: x>y');
+        end if;
+
+        l_param(l_src_col) := l_dst_col;
+
+      end loop;
+
+      --Make replacement
+      for i in l_orderby_array.first .. l_orderby_array.last loop
+
+        l_col_num := prv_utils.extract_val(l_orderby_array(i), ' ', 1);
+        l_sort := prv_utils.extract_val(l_orderby_array(i), ' ', 2);
+
+        if l_param.exists(l_col_num) then
+          l_col_num := l_param(l_col_num);
+        end if;
+
+        l_orderby_array(i) := l_col_num || case when l_sort is not null then ' ' || l_sort end;
+
+      end loop;
+
+      return cast_plsqltable2str(l_orderby_array, ',');
+
+    elsif p_mapping_str is null and p_orderby_clause is not null then
+      raise_application_error(-20000, 'Mapping str is empty');
+    else
+      return null;
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_sort_expression(p_sort_order varchar2,
+      p_col01 varchar2 := null, p_col02 varchar2 := null, p_col03 varchar2 := null, p_col04 varchar2 := null, p_col05 varchar2 := null,
+      p_col06 varchar2 := null, p_col07 varchar2 := null, p_col08 varchar2 := null, p_col09 varchar2 := null, p_col10 varchar2 := null,
+      p_col11 varchar2 := null, p_col12 varchar2 := null, p_col13 varchar2 := null, p_col14 varchar2 := null, p_col15 varchar2 := null,
+      p_col16 varchar2 := null, p_col17 varchar2 := null, p_col18 varchar2 := null, p_col19 varchar2 := null, p_col20 varchar2 := null,
+      p_col21 varchar2 := null, p_col22 varchar2 := null, p_col23 varchar2 := null, p_col24 varchar2 := null, p_col25 varchar2 := null,
+      p_col26 varchar2 := null, p_col27 varchar2 := null, p_col28 varchar2 := null, p_col29 varchar2 := null, p_col30 varchar2 := null,
+      p_col31 varchar2 := null, p_col32 varchar2 := null, p_col33 varchar2 := null, p_col34 varchar2 := null, p_col35 varchar2 := null)
+  return raw
+  is
+    l_res raw(4000);
+    l_buf raw(200);
+    l_sort_order dbms_sql.varchar2_table := prv_utils.str2plsqltable(lower(p_sort_order), ',');
+    l_col_num pls_integer;
+    --
+    function get(p_col_num pls_integer) return varchar2 is
+    begin
+      return case p_col_num
+        when 1 then p_col01 when 2 then p_col02 when 3 then p_col03 when 4 then p_col04 when 5 then p_col05
+        when 6 then p_col06 when 7 then p_col07 when 8 then p_col08 when 9 then p_col09 when 10 then p_col10
+        when 11 then p_col11 when 12 then p_col12 when 13 then p_col13 when 14 then p_col14 when 15 then p_col15
+        when 16 then p_col16 when 17 then p_col17 when 18 then p_col18 when 19 then p_col19 when 20 then p_col20
+        when 21 then p_col21 when 22 then p_col22 when 23 then p_col23 when 24 then p_col24 when 25 then p_col25
+        when 26 then p_col26 when 27 then p_col27 when 28 then p_col28 when 29 then p_col29 when 30 then p_col30
+        when 31 then p_col31 when 32 then p_col32 when 33 then p_col33 when 34 then p_col34 when 35 then p_col35
+      end;
+    end;
+  begin
+
+    if l_sort_order.count > 0 then
+      for i in l_sort_order.first..l_sort_order.last loop
+        begin
+          l_col_num := prv_utils.extract_val(l_sort_order(i), ' ', 1);
+        exception when others then
+          raise_application_error(-20000, 'Invalid sort expression '''||p_sort_order||''': column number must be numeric');
+        end;
+        l_buf := substr(utl_raw.cast_to_raw(rpad(nvl(lower(get(l_col_num)), ' '), 100)), 1, 200);
+        if prv_utils.extract_val(l_sort_order(i), ' ', 2) = 'desc' then
+          l_res := l_res || utl_raw.bit_complement(l_buf);
+        else
+          l_res := l_res || l_buf;
+        end if;
+      end loop;
+    end if;
+
+    return l_res;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure update_last_failed_query(p_query clob) is
+    pragma autonomous_transaction;
+  begin
+    update prv_last_failed_query set query = p_query;
+    if sql%rowcount = 0 then
+      insert into prv_last_failed_query (query) values (p_query);
+    end if;
+    commit;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure init_def_redis_conn(p_proc_name varchar2 := null) is
+    c_redis_host  constant varchar2(256) := prv_utils.get_param('PARAM-DEFAULT_REDIS_HOST');
+    c_redis_port  constant varchar2(256) := prv_utils.get_param('PARAM-DEFAULT_REDIS_PORT');
+    c_redis_pwd   constant varchar2(256) := nullif(prv_utils.get_param('PARAM-DEFAULT_REDIS_PWD'), 'null');
+  begin
+
+    begin
+      prv_utils.init_redis_conn(c_redis_host, c_redis_port, c_redis_pwd);
+    exception when others then
+      prv_utils.save_debug
+      (
+        nvl(p_proc_name, 'Common Redis connection'),
+        'Cannot connect to Redis DB on '||c_redis_host||':'||c_redis_port, prv_utils.c_debug_error
+      );
+      raise;
+    end;
+
+  end;
+  -----------------------------------------------------------------------
+  function get_server_tz_name return varchar2 is
+    l_is_dst pls_integer := 0;
+    l_num_m pls_integer := 0;
+    l_res varchar2(128) := '';
+    l_tz_name varchar2(64) := '';
+  begin
+    l_res := get_server_tz_name(l_tz_name, l_is_dst, l_num_m);
+    return rtrim(l_res, chr(0));
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_policy4cdr(p_object_schema varchar2, p_object_name varchar2) return varchar2 is
+  begin
+
+    if user in ('INVOICE', 'INVOICE_UIDISP') then
+      return null;
+    else
+      return '(cdr_time < sysdate - 1/2 or cdr_status != ''SENT'')';
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_one_time_pass return varchar2
+  is
+    pragma autonomous_transaction;
+    l_pass bas_one_time_pass.one_time_password%type := get_random_string(8);
+  begin
+    if sys_context('user_ctx', 'user_id') is not null then
+      insert into bas_one_time_pass (user_id, one_time_password)
+      values (sys_context('user_ctx', 'user_id'), l_pass);
+
+      commit;
+
+      return l_pass;
+    else
+      raise_application_error(-20000, prv_utils.get_message('PRV-ERR-ONE-TIME-PWD-BY-AUTHORIZED-ONLY'));
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure apply_messages_from_file(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table)
+  is
+    l_param prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'file_path,merge_option');
+    l_rows prv_common_table_t;
+  begin
+
+    l_rows := prv_utils.parse_csv(l_param('file_path'), ';');
+
+    if l_param('merge_option') = 'replace' then
+      delete from prv_message;
+    elsif l_param('merge_option') = 'append' then
+      null; --Do nothing
+    else
+      raise_application_error(-20000, 'Unsupported merge_option: ' || l_param('merge_option'));
+    end if;
+
+    if l_rows.count > 1 then
+
+      for i in l_rows.first + 1 .. l_rows.last loop
+
+        prv_utils.update_message(l_rows(i).col01, l_rows(i).col03, l_rows(i).col02);
+
+      end loop;
+
+    end if;
+
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function download_messages_file(p_names dbms_sql.varchar2_table, p_values dbms_sql.varchar2_table)
+  return blob
+  is
+    l_param   prv_utils.param_t := prv_utils.transform_params(p_names, p_values, 'export_format,filter_mask');
+    l_cur     sys_refcursor;
+    l_blob    blob;
+    l_names   dbms_sql.varchar2_table;
+    l_values  dbms_sql.varchar2_table;
+  begin
+
+    l_names(1) := 'full';
+    l_values(1) := '1';
+
+    l_names(2) := 'pattern';
+    l_values(2) := l_param('filter_mask');
+
+    l_cur := get_message_list(l_names, l_values);
+
+    if l_param('export_format') = 'json' then
+
+      --TODO
+      null;
+
+    else
+
+      --Add BOM at the beginning
+      l_blob := to_blob(hextoraw('EFBBBF'));
+
+      --Add content
+      dbms_lob.append(l_blob, prv_exp_utils.export2csv(p_cur => l_cur, p_sep => ';',p_end_of_line => 'LF'));
+
+      return l_blob;
+
+    end if;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure check_rowcount is
+  begin
+    if sql%rowcount = 0 then
+      raise_application_error(-20000, prv_utils.get_message('ERR-UPDATED_NO_ROWS'));
+    end if;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_host_from_url(p_url varchar2) return varchar2 is
+  begin
+    return substr(regexp_substr(p_url, ':\/\/[^\/]+'), 4);
+  end;
+  -----------------------------------------------------------------------------------------------
+  function convert(p_old_value varchar2, p_new_value varchar2)
+  return varchar2
+  is
+  begin
+    return case when p_new_value = prv_var.c_not_exists_val then p_old_value else p_new_value end;
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_file_as_array(p_file_id varchar2, p_limit_page_count number := null) return prv_common_table_t is
+    c_original_file_path varchar2(256) := prv_utils.get_directory_path('WEB_FILE_DIR')||'/'||p_file_id||'/original';
+    l_original_file_name varchar2(256);
+    l_parsed_file_path varchar2(256);
+    c_python_path varchar2(256) := 'python /usr/lib/invoice/scripts/parse-xls.pyc';
+    l_rows prv_common_table_t;
+    l_out varchar2(4000);
+  begin
+
+    if prv_utils.file_exists(c_original_file_path||'.xls') then
+      l_original_file_name := c_original_file_path||'.xls';
+    elsif prv_utils.file_exists(c_original_file_path||'.csv') then
+      l_original_file_name := c_original_file_path||'.csv';
+    elsif prv_utils.file_exists(c_original_file_path||'.xlsx') then
+      l_original_file_name := c_original_file_path||'.xlsx';
+    else
+      raise_application_error(-20000, 'File id:'||p_file_id||' not found');
+    end if;
+
+    l_parsed_file_path := l_original_file_name||'.csv';
+
+    if not prv_utils.file_exists(l_parsed_file_path) then
+
+      --Try to parse file
+      l_out := prv_utils.exec_os_command(c_python_path||' '||l_original_file_name);
+      if l_out is not null and not prv_utils.file_exists(l_parsed_file_path) then
+        prv_utils.save_debug('Convert spreadsheet to csv', 'Failed to convert due to error: '||l_out, prv_utils.c_debug_warning);
+        raise_application_error(-20000, 'File parsing error');
+      end if;
+
+    end if;
+
+    begin
+      l_rows := prv_utils.parse_csv(l_parsed_file_path, chr(1), p_limit_page_count);
+    exception when others then
+      --TODO
+      raise;
+    end;
+    return l_rows;
+  end;
+  ----------------------------------------------------------------------------------
+  procedure wait_for_job(p_job_mask varchar2)
+  is
+    --
+    l_last_start_date timestamp(6) with time zone;
+    --
+    function get_pending_jobs_cnt return number is
+      l_cnt number;
+    begin
+      select max(last_start_date), count(1)
+      into l_last_start_date, l_cnt
+      from user_scheduler_jobs
+      where job_name like p_job_mask
+      and state = 'RUNNING'
+      and (l_last_start_date is null or last_start_date <= l_last_start_date);
+      return nvl(l_cnt, 0);
+    end;
+  begin
+
+    loop
+      dbms_lock.sleep(0.3);
+      exit when get_pending_jobs_cnt = 0;
+    end loop;
+
+  end;
+  ----------------------------------------------------------------------------------
+  procedure refresh_log_bookmarks is
+    c_table_list prv_varchar30_table_t := prv_varchar30_table_t
+    (
+      'BAS_CARRIER',
+      'BAS_ACCOUNT',
+      'BAS_AGREEMENT',
+      'BAS_PRODUCT',
+      'BAS_VOIP_POI',
+      'RAT_RATE',
+      'RAT_TIMEMASK',
+      'RAT_BILL_INC',
+      'BAS_CURRENCY_RATE',
+      'RUT_RULE',
+      'BAS_DIAL_CODE',
+      'BAS_POI_CAPACITY',
+      'RUT_SRC_PRFX',
+      'RUT_GLOBAL_VARIABLE',
+      'RUT_MACRO_RULE',
+      'SMS_CHANNEL',
+      'SMS_POI',
+      'SMS_PACK_SUBSCR',
+      'SMS_PACK_CONTENT',
+      'SMS_RTL_CONNECTION',
+      'SMS_RTL_BLACK_LIST',
+      'SMS_DIAL_CODE_REF',
+      'SMS_RATE'
+    );
+    c_log_period number := nvl(prv_utils.get_param('RUT-RATE_CHANGE_PERIOD')/24, 1);
+    l_max_log_id number;
+    l_scn number;
+  begin
+
+    for i in c_table_list.first..c_table_list.last loop
+
+      begin
+        execute immediate 'lock table '||c_table_list(i)||' in exclusive mode nowait';
+      exception when others then
+        continue;
+      end;
+
+      select current_scn
+      into l_scn
+      from v$database;
+
+      execute immediate 'select max(log_id) from log_'||c_table_list(i) into l_max_log_id;
+
+      if l_max_log_id is not null then
+
+        insert into prv_log_bookmark (table_name, log_id, scn, dcheck)
+        values (c_table_list(i), l_max_log_id, l_scn, sysdate);
+
+        commit;
+
+      end if;
+
+    end loop;
+
+    --Delete old bookmarks
+    delete from prv_log_bookmark
+    where dcheck < sysdate - c_log_period;
+
+    commit;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure add_deferred_action(p_action_sql varchar2)
+  is
+  begin
+    insert into prv_deferred_action (create_date, action_sql)
+    select systimestamp, p_action_sql
+    from dual
+    where p_action_sql not in (select action_sql from prv_deferred_action);
+  end;
+  -----------------------------------------------------------------------------------------------
+  procedure set_last_license_upd_date
+  is
+    pragma autonomous_transaction;
+  begin
+
+    merge into prv_param t
+    using (select 'PARAM-LAST_LICENSE_UPDATE' param_code, to_char(sysdate, prv_var.c_sys_datetime_fmt) param_value from dual) s
+    on (t.param_code = s.param_code)
+    when matched then update set param_value = to_char(sysdate, prv_var.c_sys_datetime_fmt)
+    when not matched then insert (param_code, param_value, param_is_editable, param_is_hidden) 
+    values (s.param_code, s.param_value, 0, 1);
+
+    commit;
+
+  end;
+  -----------------------------------------------------------------------------------------------
+  function get_last_license_upd_date return date
+  is
+  begin
+    return nvl(to_date(prv_var.get_param('PARAM-LAST_LICENSE_UPDATE'), prv_var.c_sys_datetime_fmt), sysdate - 1);
+  end;
+  -----------------------------------------------------------------------------------------------
+  begin
+    set_nls_date_format;
+    begin
+      check_license;
+      exception when others then
+        if user not in ('INVOICE','INVOICE_HWDISP') then
+          
+          if get_last_license_upd_date < sysdate - 1/1440 then
+            execute immediate 'begin prv_aux_utils.set_license_params; end;';
+            set_last_license_upd_date;
+            check_license;
+          else
+            raise;
+          end if;
+          
+        end if;
+    end;*/
+end;
+/

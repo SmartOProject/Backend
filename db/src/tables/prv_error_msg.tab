@@ -1,0 +1,13 @@
+begin
+  prv_inst_utils.update_table('
+create table prv_error_msg
+(
+  message_code varchar2(256),
+  message_pattern varchar2(512),
+  constraint prv_error_msg_unq unique (message_code) using index enable
+)
+segment creation immediate
+pctfree 10 pctused 40 initrans 1 maxtrans 255
+nocompress logging');
+end;
+/

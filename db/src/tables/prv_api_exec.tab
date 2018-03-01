@@ -1,0 +1,30 @@
+begin
+  prv_inst_utils.update_table('
+create table prv_api_exec
+(
+  exec_id number not null enable,
+  exec_date date not null enable,
+  exec_user_id number,
+  exec_user_name varchar2(256),
+  msg_type varchar2(256) not null enable,
+  session_db_user varchar2(32),
+  session_ip varchar2(256),
+  exec_time_elapsed number,
+  exec_error varchar2(4000),
+  exec_params01 varchar2(4000),
+  exec_params02 varchar2(4000),
+  exec_params03 varchar2(4000),
+  exec_params04 varchar2(4000),
+  exec_params05 varchar2(4000),
+  exec_params06 varchar2(4000),
+  exec_params07 varchar2(4000),
+  exec_params08 varchar2(4000),
+  session_host varchar2(256),
+  session_os_user varchar2(256),
+  module varchar2(256),
+  action varchar2(256),
+  session_id number,
+  constraint prv_api_exec_pk primary key (exec_id) using index enable
+)');
+end;
+/

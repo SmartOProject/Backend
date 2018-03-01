@@ -1,0 +1,24 @@
+﻿begin
+  prv_inst_utils.update_table('
+create table prv_api_resource_param
+(
+  request_pattern varchar2(256) not null enable,
+  param_name varchar2(256) not null enable,
+  param_descr varchar2(1000),
+  param_direction number(1,0) not null enable,
+  param_required number(1,0) not null enable,
+  param_type varchar2(30) not null enable,
+  param_in varchar2(30),
+  order_num number(3),
+  validation_json varchar2(4000),
+  constraint prv_api_resource_param_pk primary key (request_pattern, param_name, param_direction) using index enable,
+  constraint prv_api_res_param_direction_ch check (param_direction in (0,1)) enable,
+  constraint prv_api_res_param_in_ch check (param_in in (''query'', ''header'', ''path'', ''formData'', ''body'')) enable,
+  constraint prv_api_res_param_required_ch check (param_required in (0,1)) enable,
+  constraint prv_api_res_param_type_ch check (param_type in (''integer'', ''number'', ''string'', ''boolean'')) enable
+)
+segment creation immediate
+pctfree 10 pctused 40 initrans 1 maxtrans 255
+nocompress logging');
+end;
+/

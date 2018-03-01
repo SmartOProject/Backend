@@ -1,0 +1,236 @@
+﻿create or replace package
+/*
+$Rev: 23927 $
+$Author: evgeny $
+$Date: 2018-01-29 14:36:45 +0300 (Пн, 29 янв 2018) $
+$HeadURL: http://svn.alarislabs.com/invoice/branches/releases/3.5/modules/db/src/packages/prv_var.pkg $
+*/
+prv_var is
+  --
+  c_sms_version     number(1);
+  c_voice_version   number(1);
+  c_sms_rtl_version number(1);
+  --
+  --Predefined product types
+  c_prod_type_int   constant number := 1;
+  c_prod_type_usdom constant number := 2;
+  c_prod_type_sms   constant number := 3;
+  c_prod_type_bal_corr constant number := 5;
+  c_prod_type_did   constant number := 6;
+  --
+  f_sms_version     boolean;
+  f_voice_version   boolean;
+  --
+  c_allowed_la      number;
+  c_cpu_count       number;
+  --
+  --System wide constants
+  c_sys_date_fmt          varchar2(256);
+  c_sys_datetime_fmt      varchar2(256);
+  c_sys_timestamp_fmt     constant varchar2(256) := 'YYYY.MM.DD HH24:MI:SS.FF6';
+  --Default formats for documents
+  c_def_date_fmt          varchar2(256);
+  c_def_w_date_fmt        varchar2(256);
+  c_def_p_date_fmt        varchar2(256);
+  c_def_pw_date_fmt       varchar2(256);
+  c_def_datetime_fmt      varchar2(256);
+  c_def_w_datetime_fmt    varchar2(256);
+  c_def_p_datetime_fmt    varchar2(256);
+  c_def_pw_datetime_fmt   varchar2(256);
+  c_def_date_nls          varchar2(1024);
+  c_def_monetary_fmt      varchar2(256);
+  c_def_fractional_fmt    varchar2(256);
+  c_def_integer_fmt       varchar2(256);
+  c_def_price_fmt         varchar2(256);
+  c_def_num_nls           varchar2(1024);
+  --
+  c_server_currency_code  varchar2(16);
+  --
+  c_def_parallelism       number;
+  --
+  c_rate_block_val        number;
+  --
+  c_debug_mode            boolean;
+  c_enable_email          boolean;
+  --
+  m_skip_log_triggers     number(1);
+  m_skip_event_sending    number(1);
+  --
+  m_exec_id               number;
+  m_exec_start            timestamp;
+  --
+  m_fetched_row_cnt       number;
+  m_last_id               number;
+  m_rows_affected         number;
+  --
+  m_system_event_list     varchar2(4000);
+  --
+  m_rows                  prv_varchar4000_table_t;
+  --
+  c_nl                    constant varchar2(2) := chr(13)||chr(10);
+  c_pwd_mask              constant varchar2(5) := '*****';
+  --
+  c_not_exists_val        constant varchar2(12) := chr(1)||'not_exists'||chr(1);
+  --
+  --Task types
+  c_other_task_type_id            constant number := 0;   --Other tasks
+  c_cdr_rerating_task_type_id     constant number := 1;   --CDR rerating
+  c_cdr_exp_task_type_id          constant number := 2;   --CDR export
+  c_rate_exp_task_type_id         constant number := 3;   --Rate export
+  c_rpt_basic_task_type_id        constant number := 4;   --Basic report module (export report to file)
+  c_rate_analisys_task_type_id    constant number := 5;   --Rate analisys
+  c_cdr_recalc_task_type_id       constant number := 6;   --CDR recalculation
+  c_cdr_recon_task_type_id        constant number := 7;   --CDR reconcialation
+  c_rate_gen_task_type_id         constant number := 8;   --Rate generation
+  c_call_sim_task_type_id         constant number := 9;   --Call simulation
+  c_sms_sim_task_type_id          constant number := 10;  --SMS simulation
+  c_sms_recalc_task_type_id       constant number := 11;  --SMS recalculation
+  c_sms_rate_exp_task_type_id     constant number := 12;  --SMS rate export
+  c_clp_cdr_exp_task_type_id      constant number := 13;  --Client portal CDR export
+  c_inv_exp_task_type_id          constant number := 14;  --Invoice export
+  c_charge_det_comp_task_type_id  constant number := 15;  --Charge details comparison
+  c_sms_recon_task_type_id        constant number := 16;  --SMS reconcialation
+  c_edr_exp_task_type_id          constant number := 17;  --EDR export
+  c_sms_ref_upd_task_type_id      constant number := 18;  --SMS reference book update
+  c_sms_rate_imp_task_type_id     constant number := 19;  --SMS rate import
+  c_cdr_exp_a_task_type_id        constant number := 20;  --Analytics CDR export
+  c_sc_edr_exp_task_type_id       constant number := 21;  --SMS retail EDR export
+  c_auto_import_task_type_id      constant number := 22;  --Auto import
+  c_trace_analyzer_task_type_id   constant number := 23;  --Trace analyzer
+  c_inv_confirm_task_type_id      constant number := 24;  --Invoice confirmation
+  c_rate_import_task_type_id      constant number := 25;  --Rate import
+  c_edr_exp_if_task_type_id       constant number := 26;  --EDR export (Export interface)
+  c_rpt_sub_query_task_type_id    constant number := 27;  --Report with execute subquery
+  c_rpt_task_type_id              constant number := 28;  --Report which has been running by task
+  c_sms_rate_gen_task_type_id     constant number := 29;  --SMS rate generation
+  c_rate_change_notif_id          constant number := 30;  --Rate change notification
+  c_rpt_preset_task_type_id       constant number := 31;  --Report which has been running by preset task
+  c_rtl_sms_sending_task_type_id  constant number := 32;  --Bulk SMS sending from file
+  c_rtl_con_load_task_type_id     constant number := 33;  --Retail contact load
+
+  --
+  --VPD roles
+  c_vpd_full      constant varchar2(30) := 'ROLE-VPD-FULL';       --View and edit all data
+  c_vpd_cc        constant varchar2(30) := 'ROLE-VPD-CC';         --View and edit objects of own contact company
+  c_vpd_acc       constant varchar2(30) := 'ROLE-VPD-ACC';        --View and edit objects of own accounts
+  c_vpd_rw_own    constant varchar2(30) := 'ROLE-VPD-RW-OWN';     --View all data
+  c_vpd_r_sys_own constant varchar2(30) := 'ROLE-VPD-R-SYS-OWN';  --View system owner objects
+  c_vpd_same      constant varchar2(30) := 'ROLE-VPD-SAME';       --Edit objects of same carrier
+  c_clp_admin     constant varchar2(30) := 'ROLE-CLP-ADMIN';      --Same as ROLE-VPD-SAME but for portal users
+  --
+  --Directories
+  c_cdr_dir       constant varchar2(256) := 'CDR_DIR';
+  c_default_dir   constant varchar2(256) := 'DEFAULT_DIR';
+  c_web_file_dir  constant varchar2(256) := 'WEB_FILE_DIR';
+  --
+  --Rates inheritance mode
+  c_inherit_mode number;
+  c_long_match_child_first constant number := 0;
+  c_global_long_match constant number := 1;
+  --
+  c_rtl_params    constant prv_varchar256_table_t := prv_varchar256_table_t
+  (
+    'PARAM-DEBUG_MODE',
+    'FIN-SYSTEM-OWNER-NAME',
+    'CLP-PAYPAL_URL',
+    'SMS-RTL-TRUSTED_ADDR_LIST',
+    'SMS-RTL-URL-TEMPLATE',
+    'CLP-DEF_SMS_SPLIT_MODE',
+    'PARAM-SYS-TIMEZONE-NAME',
+    'CLP-SMS_THREAD_COUNT',
+    'CLP-SMS_CAMPAING_MESSAGE_LIMIT',
+    'PARAM-RESPONSE_RECORD_COUNT_LIMIT',
+    'PARAM-DEFAULT_REDIS_HOST',
+    'PARAM-DEFAULT_REDIS_PORT',
+    'PARAM-DEFAULT_REDIS_PWD',
+    'PARAM-SWITCH_REDIS_HOST',
+    'PARAM-SWITCH_REDIS_PORT',
+    'PARAM-SWITCH_REDIS_PWD',
+    'PARAM-REST_API_TRACE_REQUEST',
+    'PARAM-REST_API_TRACE_RESPONSE',
+    'CLP-PAYONLINE_MERCHANT_ID',
+    'CLP-PAYONLINE_PRIVATE_SECURITY_KEY',
+    'CLP-E164_PATTERN_JAVA',
+    'SMSRATE-RATES_INH_MODE'
+  );
+  --
+  procedure init_vars;
+  function get_param_rec(p_code varchar2) return prv_param%rowtype;
+  function get_param(p_code varchar2) return varchar2 result_cache;
+  --
+  function c_sys_timezone return number;
+  --Report module
+  c_report_module constant varchar2(16) := 'Report module'; -- marker for prv_debug.debug_source
+  c_job_worker    constant varchar2(30) := 'WORKER';  -- This marker is used for tasks wich where created from the job-dispatcher
+
+end;
+/
+create or replace package body prv_var as
+  -----------------------------------------------------------------------
+  procedure init_vars is
+  begin
+    c_sms_version       := get_param('PARAM-SMS');
+    c_voice_version     := get_param('PARAM-VOICE');
+    c_sms_rtl_version   := get_param('PARAM-SMS-RTL');
+    --
+    f_sms_version       := case when c_sms_version = 1 then true else false end;
+    f_voice_version     := case when c_voice_version = 1 then true else false end;
+    --
+    c_allowed_la        := get_param('PARAM-ALLOWED_LA');
+    --System wide constants
+    c_sys_date_fmt      := get_param('PARAM-SYS-DATE-FMT');
+    c_sys_datetime_fmt  := get_param('PARAM-SYS-DATETIME-FMT');
+    c_server_currency_code := get_param('PARAM-SYS-CURRENCY-CODE');
+    --Default formats for documents
+    c_def_date_fmt         := get_param('PARAM-DEFAULT-DATE-FMT');
+    c_def_w_date_fmt       := nvl(nullif(get_param('PARAM-DEFAULT-DATE-IN-WORDS-FMT'), 'null'), c_def_date_fmt);
+    c_def_p_date_fmt       := nvl(nullif(get_param('PARAM-DEFAULT-DATE-PERIOD-FMT'), 'null'), c_def_date_fmt);
+    c_def_pw_date_fmt      := nvl(nullif(get_param('PARAM-DEFAULT-DATE-PERIOD-IN-WORDS-FMT'), 'null'), c_def_date_fmt);
+    c_def_datetime_fmt     := get_param('PARAM-DEFAULT-DATETIME-FMT');
+    c_def_w_datetime_fmt   := nvl(nullif(get_param('PARAM-DEFAULT-DATETIME-IN-WORDS-FMT'), 'null'), c_def_datetime_fmt);
+    c_def_p_datetime_fmt   := nvl(nullif(get_param('PARAM-DEFAULT-DATETIME-PERIOD-FMT'), 'null'), c_def_datetime_fmt);
+    c_def_pw_datetime_fmt  := nvl(nullif(get_param('PARAM-DEFAULT-DATETIME-PERIOD-IN-WORDS-FMT'), 'null'), c_def_datetime_fmt);
+    c_def_date_nls         := nvl(nullif(get_param('PARAM-DEFAULT-DATE-NLS'), 'null'), 'nls_date_language = american');
+    c_def_monetary_fmt     := nvl(nullif(get_param('PARAM-DEFAULT-MONETARY-FMT'), 'null'), 'fm999G999G999G999G990D00');
+    c_def_fractional_fmt   := nvl(nullif(get_param('PARAM-DEFAULT-FRACTIONAL-FMT'), 'null'), 'fm999G999G999G999G990D00');
+    c_def_integer_fmt      := nvl(nullif(get_param('PARAM-DEFAULT-INTEGER-FMT'), 'null'), 'fm999G999G999G999G990');
+    c_def_price_fmt        := nvl(nullif(get_param('PARAM-DEFAULT-PRICE-FMT'), 'null'), 'fm999G999G999G999G990D00000');
+    c_def_num_nls          := nvl(nullif(get_param('PARAM-DEFAULT-NUMERIC-NLS'), 'null'), 'nls_numeric_characters = ''. ''');
+    --
+    c_def_parallelism   := to_number(nvl(get_param('PARAM-DEFAULT_PARALLELISM'), 10));
+    c_rate_block_val    := nullif(get_param('RAT-BLOCKED_RATE_VALUE'), 'null');
+    --
+    c_debug_mode        := get_param('PARAM-DEBUG_MODE') = 'true';
+    c_enable_email      := nvl(get_param('PARAM-MAIL-ENABLE'), 0) = 1;
+    --
+    c_inherit_mode      := nvl(get_param('RAT-RATES_INH_MODE'), 0);
+    --
+    select to_number(value)
+    into c_cpu_count
+    from v$parameter
+    where name = 'cpu_count';
+  end;
+  -----------------------------------------------------------------------
+  function get_param_rec(p_code varchar2) return prv_param%rowtype is
+    l_rec prv_param%rowtype;
+  begin
+    select *
+    into l_rec
+    from prv_param
+    where param_code = p_code;
+    return l_rec;
+  exception when others then
+    return null;
+  end;
+  -----------------------------------------------------------------------
+  function get_param(p_code varchar2) return varchar2 result_cache is
+  begin
+    return prv_var.get_param_rec(p_code).param_value;
+  end;
+  -----------------------------------------------------------------------
+  function c_sys_timezone return number is begin return nvl(get_param('PARAM-SYS-TIMEZONE'), 0); end;
+  -----------------------------------------------------------------------
+  begin
+    init_vars;
+end;
+/

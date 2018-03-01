@@ -1,0 +1,1248 @@
+﻿create or replace package prv_rest_api as
+/**
+*
+* <h2>inVoice REST URIs</h2>
+*
+*   Description: inVoice's REST APIs provide access to resources (data entities) via URI paths. <br/>
+*   To use a REST API, your application will make an HTTP request and parse the response. <br/>
+*   This REST API uses JSON as its communication format, and the standard HTTP methods like GET, PUT, POST and DELETE (see API descriptions below for which methods are available for each resource). <br/>
+*   URIs for inVoice's REST API resource have the following structure: http://host:port/api/resource<br/>
+*
+*   Author: Mukhametzhanov Ildar<br/>
+*
+*   Date: 2015-03-08<br/>
+*
+* @headcom
+*/
+
+  procedure check_resource_syntax(p_request_pattern varchar2 default null);
+
+  function not_exists_val return varchar2 deterministic;
+
+  function get_sql(p_sql varchar2, p_param prv_utils.param_t) return varchar2;
+  
+/**
+*   Database function which processes API requests
+*
+*   @param p_json_params JSON input parameters
+*   @param p_out_param Output parameters in JSON format
+*   @param p_rows Optional rows array to post big amount of data
+*
+*   @throws function doesn't return any exception
+*
+*   @return Openned sys_refcursor variabls
+*/
+
+  procedure log_exec(p_msg_type varchar2, p_params varchar2);
+
+  procedure log_error(p_error_message varchar2);
+
+  procedure log_success;
+  
+  function get_response(p_json_params varchar2, p_out_param out varchar2, p_rows prv_varchar4000_table_t) return sys_refcursor;
+
+  function get_param_list return sys_refcursor;
+
+  function get_translated_error_msg(p_original_msg varchar2, p_sqlcode number := null) return varchar2;
+  
+  function parse_date(p_json varchar2) return date;
+
+  procedure convert_params
+  (
+    p_names_tab       prv_varchar4000_table_t, 
+    p_new_values_tab  prv_varchar4000_table_t, 
+    p_old_values_tab  prv_varchar4000_table_t,
+    p_names           out dbms_sql.varchar2_table,
+    p_values          out dbms_sql.varchar2_table
+  );
+  
+  function get_api_resource_list return sys_refcursor;  
+
+  function get_api_resource_param_list(p_request_pattern varchar2) return sys_refcursor;
+
+  function test_bind(l_resource_rec prv_api_resource%rowtype) return varchar2;
+
+end;
+/
+create or replace package body prv_rest_api as
+  --
+  type param_desc_t is table of prv_api_resource_param%rowtype;
+  --
+  procedure log_exec(p_msg_type varchar2, p_params varchar2)
+  is
+    pragma autonomous_transaction;
+    l_client_info   varchar2(256);
+    l_module_name   varchar2(256);
+    l_action_name   varchar2(256);
+    l_param_array   prv_varchar4000_table_t := prv_varchar4000_table_t();
+  begin
+
+    --Log API access
+    prv_var.m_exec_id := prv_api_exec_id_seq.nextval;
+    prv_var.m_exec_start := systimestamp;
+
+    dbms_application_info.read_client_info(l_client_info);
+    dbms_application_info.read_module(l_module_name, l_action_name);
+
+    l_param_array.extend(8);
+    for i in 1..8 loop
+      if length(p_params) > (i - 1)*4000 then
+        l_param_array(i) := substrb(p_params, (i - 1)*4000 + 1, i*4000);
+      else
+        exit;
+      end if;
+    end loop;
+
+    if user <> 'INVOICE_HWDISP' or prv_var.c_debug_mode then
+      insert into prv_api_exec
+      (
+        exec_id, exec_date, msg_type,
+        session_db_user, session_ip,
+        exec_user_id, exec_user_name,
+        session_host, session_os_user,
+        module, action,
+        exec_params01, exec_params02, exec_params03, exec_params04,
+        exec_params05, exec_params06, exec_params07, exec_params08,
+        session_id
+      )
+      values
+      (
+        prv_var.m_exec_id, sysdate, p_msg_type,
+        user, nvl(l_client_info, sys_context('USERENV', 'IP_ADDRESS')),
+        app_utils.get_user_id, app_utils.get_user_name,
+        sys_context('USERENV', 'HOST'), sys_context('USERENV', 'OS_USER'),
+        l_module_name, l_action_name,
+        l_param_array(1), l_param_array(2), l_param_array(3), l_param_array(4),
+        l_param_array(5), l_param_array(6), l_param_array(7), l_param_array(8),
+        sys_context('userenv', 'sessionid')
+      );
+
+      commit;
+    end if;
+  end;
+  ------------------------------------------------------------------------------------------------
+  procedure log_error(p_error_message varchar2)
+  is
+    pragma autonomous_transaction;
+  begin
+
+    update prv_api_exec
+    set exec_error = p_error_message,
+      exec_time_elapsed = prv_utils.get_timestamp_diff(prv_var.m_exec_start, systimestamp)
+    where exec_id = prv_var.m_exec_id;
+
+    prv_var.m_exec_id := null;
+    prv_var.m_exec_start := null;
+
+    commit;
+
+  end;
+  ------------------------------------------------------------------------------------------------
+  procedure log_success
+  is
+    pragma autonomous_transaction;
+  begin
+    update prv_api_exec
+    set exec_time_elapsed = prv_utils.get_timestamp_diff(prv_var.m_exec_start, systimestamp)
+    where exec_id = prv_var.m_exec_id;
+
+    prv_var.m_exec_id := null;
+    prv_var.m_exec_start := null;
+
+    commit;
+  end;
+  ------------------------------------------------------------------------------------------------
+  --
+  function c_orderby_clause_pn return varchar2 is begin return 'orderby_clause'; end;
+  --
+  function c_integer_type   return varchar2 is begin return 'integer'; end;
+  function c_number_type    return varchar2 is begin return 'number'; end;
+  function c_datetime_type  return varchar2 is begin return 'datetime'; end;
+  --
+  procedure check_resource_syntax(p_request_pattern varchar2 default null)
+  is
+  begin
+    for i in 
+    (
+      select 
+        r.request_pattern, 
+        r.sql_template || nvl2(r.rls_condition, ' where '||r.rls_condition, null) sql_str,
+        cast(multiset
+        (
+          select param_name
+          from prv_api_resource_param rp
+          where rp.request_pattern = r.request_pattern
+          and rp.param_direction = 0
+        ) as prv_varchar256_table_t) params
+      from prv_api_resource r 
+      where r.sql_template is not null
+        and (p_request_pattern is null or r.request_pattern = p_request_pattern)
+    )
+    loop
+      declare
+        l_cur     integer;
+        l_sql     varchar2(32767);
+        l_param   prv_utils.param_t;    
+      begin
+
+        if i.params.count > 0 then
+          for j in i.params.first .. i.params.last loop
+            l_param(i.params(j)) := '';
+          end loop;
+        end if;
+        
+        l_sql := get_sql(i.sql_str, l_param);
+        
+        if regexp_like(l_sql, '^((declare)|(begin))(.)*') then
+          l_cur := dbms_sql.open_cursor;
+          dbms_sql.parse(l_cur, l_sql, dbms_sql.v7);
+          dbms_sql.close_cursor(l_cur);
+        else
+          execute immediate 'explain plan set statement_id = '''||dbms_scheduler.generate_job_name('STMT_')||''' for '||l_sql;
+        end if;
+
+        exception
+          when others then
+            if dbms_sql.is_open(l_cur) then
+              dbms_sql.close_cursor(l_cur);
+            end if;
+            raise_application_error
+            (
+              -20000,
+              'Rest API method '''||i.request_pattern||''' containts SQL errors in' || chr(13)
+              || replace(l_sql, '''', '''''')
+              || ': '||sqlerrm
+            );
+      end;     
+    end loop;   
+  end;
+  ---------------------------------------------------------------------------
+  function var_in_query(p_sql varchar2, p_bind_name varchar2) return boolean
+  is
+  begin
+    return p_sql is null or regexp_instr(p_sql, p_bind_name||'([[:space:]]|\,|\;|\)|$)+') > 0;
+  end;
+  ---------------------------------------------------------------------------
+  procedure bind_number(p_cursor integer, p_sql varchar2, p_bind_name varchar2, p_value number)
+  is
+  begin
+    if var_in_query(p_sql, p_bind_name) then
+      dbms_sql.bind_variable(p_cursor, p_bind_name, p_value);  
+    end if;
+  exception when others then
+    if sqlcode = -1006 then
+      raise_application_error(-20000, 'Parameter ' || p_bind_name || ' does not exist');
+    else
+      raise;
+    end if; 
+  end;
+  ---------------------------------------------------------------------------
+  procedure bind_varchar(p_cursor integer, p_sql varchar2, p_bind_name varchar2, p_value varchar2, p_out_value_size in integer := null)
+  is
+  begin
+    if var_in_query(p_sql, p_bind_name) then
+      if p_out_value_size is null then
+        dbms_sql.bind_variable(p_cursor, p_bind_name, p_value);
+      else
+        dbms_sql.bind_variable(p_cursor, p_bind_name, p_value, p_out_value_size);
+      end if;
+    end if;  
+  exception when others then
+    if sqlcode = -1006 then
+      raise_application_error(-20000, 'Parameter ' || p_bind_name || ' does not exist');
+    else
+      raise;
+    end if; 
+  end;
+  ---------------------------------------------------------------------------
+  procedure bind_date(p_cursor integer, p_sql varchar2, p_bind_name varchar2, p_value date)
+  is
+  begin
+    if var_in_query(p_sql, p_bind_name) then
+      dbms_sql.bind_variable(p_cursor, p_bind_name, p_value);  
+    end if;
+  exception when others then
+    if sqlcode = -1006 then
+      raise_application_error(-20000, 'Parameter ' || p_bind_name || ' does not exist');
+    else
+      raise;
+    end if; 
+  end;
+  ---------------------------------------------------------------------------
+  procedure bind_param(p_cursor integer, p_sql varchar2, p_param_desc prv_api_resource_param%rowtype, p_value varchar2, p_out_value_size in integer := null) 
+  is
+    l_param_bind_type varchar2(256);
+  begin
+
+    --Check parameter type
+    if p_param_desc.param_required = 0 and (p_value is null or p_value = prv_var.c_not_exists_val) then
+
+      --It's Ok
+      null;
+      
+    else
+
+      l_param_bind_type := nvl
+      (
+        case when p_param_desc.validation_json is not null then prv_utils.get_key(p_param_desc.validation_json, 'type') end, 
+        p_param_desc.param_type
+      );
+        
+      begin
+      
+        --Base validation
+        case p_param_desc.param_type
+          when 'integer' 
+          then
+            if to_number(p_value) <> trunc(to_number(p_value)) then
+              raise_application_error(-20000, '-');
+            end if;
+          when 'number'
+          then
+            if to_number(p_value) <> to_number(p_value) + 0 then
+              raise_application_error(-20000, '-');
+            end if;
+          when 'boolean'
+          then
+            if p_value not in ('true', 'false') then
+              raise_application_error(-20000, '-');
+            end if;
+          else
+            --It's Ok
+            null;
+        end case;
+        
+      exception when others then
+        raise_application_error
+        (
+          -20000, 
+          'Parameter ' || p_param_desc.param_name || ' expected ' || p_param_desc.param_type || ' got ' || p_value
+        );
+      end;
+        
+        
+      --Extended validation
+      if p_param_desc.validation_json is not null then
+        declare
+          l_validation_result varchar2(4000) := prv_utils.validate_value(p_param_desc.validation_json, p_value);
+        begin
+          if l_validation_result is not null then
+            raise_application_error(-20000, p_param_desc.param_name || ': ' || l_validation_result);
+          end if;
+        end;
+      end if;
+
+    end if;
+
+    if l_param_bind_type in (c_integer_type, c_number_type) then
+      bind_number(p_cursor, p_sql, ':' || p_param_desc.param_name, to_number(p_value));
+    elsif l_param_bind_type in (c_datetime_type) then
+      bind_date(p_cursor, p_sql, ':' || p_param_desc.param_name, to_date(p_value));
+    else
+      bind_varchar(p_cursor, p_sql, ':' || p_param_desc.param_name, p_value, p_out_value_size);
+    end if;
+
+  end;    
+  ---------------------------------------------------------------------------
+  function not_exists_val return varchar2 deterministic 
+  is
+  begin
+    return prv_var.c_not_exists_val;
+  end;
+  ---------------------------------------------------------------------------
+  function get(p_param prv_utils.param_t, p_name varchar2, p_not_exists_value varchar2 := null) return varchar2 
+  is
+  begin
+    return case when p_param.exists(p_name) then nullif(p_param(p_name), 'null') else p_not_exists_value end;
+  end;
+  ---------------------------------------------------------------------------
+  function get_var_value(p_cursor integer, p_param_desc prv_api_resource_param%rowtype) return varchar2 
+  is
+    l_varchar_out varchar2(32767);
+    l_number_out  number;
+    l_date_out    date;
+  begin
+
+    if p_param_desc.param_type in (c_integer_type, c_number_type) then
+      dbms_sql.variable_value(p_cursor, p_param_desc.param_name, l_number_out);
+      return to_char(l_number_out);
+    elsif p_param_desc.param_type in (c_datetime_type) then
+      dbms_sql.variable_value(p_cursor, p_param_desc.param_name, l_date_out);
+      return to_char(l_date_out);
+    else
+      dbms_sql.variable_value(p_cursor, p_param_desc.param_name, l_varchar_out);
+      return l_varchar_out;
+    end if;
+
+  exception when others then
+    if sqlcode = -1006 then
+      --Special parameters processing
+      return case p_param_desc.param_name
+        when 'id' 
+        then prv_var.m_last_id
+        when 'rows_affected'        
+        then prv_var.m_rows_affected
+        else null 
+      end;
+    else
+      raise_application_error(-20000, 'Error binding out parameter ' || p_param_desc.param_name || ': ' || sqlcode);
+    end if;
+  end;  
+  ---------------------------------------------------------------------------
+  function get_auth_user_rec(p_auth_type varchar2, p_auth_content varchar2) return app_users%rowtype 
+  is
+    --Auth types
+    c_basic_auth      varchar2(50) := 'Basic';
+    c_bearer_auth     varchar2(50) := 'Bearer';
+    --
+    l_auth_pair       varchar2(256);
+    l_user_rec        app_users%rowtype;
+    --l_user_name       app_users.user_name%type;
+    --l_auth_user_name  app_users.user_name%type;
+    --l_ctx_user_name   app_users.user_name%type;
+    l_user_pwd        varchar2(256);
+    l_user_id         app_users.user_id%type;
+  begin
+
+    /*if p_auth_type = c_basic_auth then
+
+      --Basic auth
+      l_auth_pair := utl_raw.cast_to_varchar2
+      (
+        utl_encode.base64_decode
+        (
+          utl_raw.cast_to_raw(p_auth_content)
+        )
+      );
+
+      l_user_name := prv_utils.extract_val(l_auth_pair, ':', 1);
+      l_user_pwd := prv_utils.extract_val(l_auth_pair, ':', 2);
+
+      if instr(l_user_name, '#') > 0 then
+        l_auth_user_name := prv_utils.extract_val(l_user_name, '#', 1);
+        l_ctx_user_name := prv_utils.extract_val(l_user_name, '#', 2);
+        
+        begin
+          select user_id
+          into l_user_id
+          from app_users
+          where user_name = l_auth_user_name;
+        exception when no_data_found then
+          null;
+        end;
+        bas_utils.check_role(p_role_code1 => 'ROLE-IMPERSONATE', p_user_id => l_user_id);
+      else
+        l_auth_user_name := l_user_name;
+        l_ctx_user_name := l_user_name;
+      end if;
+      
+      select *
+      into l_user_rec
+      from app_users
+      where user_name = l_ctx_user_name
+      and exists -- auth_user_name is correct
+      (
+        select 1
+        from app_users
+        where user_name = l_auth_user_name
+        and user_active = 1
+        and (user_left_auth is null or user_left_auth > 0)
+        and user_password = prv_utils.md5(user_name || l_user_pwd || user_salt)
+      );
+
+      return l_user_rec;
+
+    elsif p_auth_type = c_bearer_auth then
+
+      --JWT auth
+      select *
+      into l_user_rec
+      from app_users
+      where user_name = p_auth_content;
+
+      return l_user_rec;
+
+    else
+
+      return null;
+
+    end if;
+
+    exception
+      when no_data_found then*/
+        return null;
+  end;
+  ---------------------------------------------------------------------------
+  procedure check_user_roles
+  (
+    p_user_id number,
+    p_user_car_id number,
+    p_required_roles varchar2, 
+    p_required_param_array param_desc_t, 
+    p_optional_param_array param_desc_t,
+    p_param prv_utils.param_t
+  ) 
+  is
+    l_roles_array         dbms_sql.varchar2_table;
+    l_status              integer;
+    l_cursor              integer;
+    l_success_role_check  boolean;
+  begin
+  
+    if instr(p_required_roles, '|') > 0 then
+
+      --Split roles by pipe and execute check_user_roles for every part
+      l_roles_array := prv_utils.str2plsqltable(p_required_roles, '|');
+      
+      if l_roles_array.count > 0 then
+        
+        for i in l_roles_array.first .. l_roles_array.last loop
+        
+          begin
+            
+            check_user_roles
+            (
+              p_user_id,
+              p_user_car_id,
+              l_roles_array(i), 
+              p_required_param_array, 
+              p_optional_param_array,
+              p_param
+            );
+
+            --Role check successful
+            return;
+        
+          exception when others then
+            --Raise error if last role not granted too
+            if i = l_roles_array.last then
+              raise;
+            end if;
+          end;
+        
+        end loop;
+      
+      end if;
+
+    elsif p_required_roles like 'begin%' or p_required_roles like 'declare%' then
+    
+      l_cursor := dbms_sql.open_cursor;
+
+      dbms_sql.parse(l_cursor, p_required_roles, dbms_sql.native);    
+
+      bind_number(l_cursor, p_required_roles, ':user_id', p_user_id);
+      bind_number(l_cursor, p_required_roles, ':user_car_id', p_user_car_id);
+      
+      --Bind required params
+      if p_required_param_array.count > 0 then
+        for i in p_required_param_array.first..p_required_param_array.last loop
+          bind_param(l_cursor, p_required_roles, p_required_param_array(i), get(p_param, p_required_param_array(i).param_name));
+        end loop;
+      end if;
+
+      --Bind optional params
+      if p_optional_param_array.count > 0 then
+        for i in p_optional_param_array.first..p_optional_param_array.last loop
+          bind_param
+          (
+            l_cursor, 
+            p_required_roles, 
+            p_optional_param_array(i), 
+            get
+            (
+              p_param, 
+              p_optional_param_array(i).param_name, 
+              case when get(p_param, 'method') = 'PUT' then not_exists_val end
+            )
+          );
+        end loop;
+      end if;
+
+
+      --Execute the query
+      begin
+        l_status := dbms_sql.execute(l_cursor);
+      exception when others then
+        dbms_sql.close_cursor(l_cursor);
+        raise;
+      end;
+      
+      dbms_sql.close_cursor(l_cursor);
+
+    elsif p_required_roles is not null then
+    
+      l_roles_array := prv_utils.str2plsqltable(p_required_roles, ',');
+      
+      if l_roles_array.count > 0 then
+        
+        for i in l_roles_array.first .. l_roles_array.last loop
+        
+          null; --bas_utils.check_role(p_role_code1 => l_roles_array(i), p_user_id => p_user_id);
+        
+        end loop;
+      
+      end if;
+    
+    end if;
+  
+  
+  end;
+  ---------------------------------------------------------------------------
+  function get_where_clause
+  (
+    p_db_fields   prv_varchar30_table_t, 
+    p_operations  prv_varchar30_table_t, 
+    p_bind_names  prv_varchar30_table_t
+  ) return varchar2
+  is
+    c_op_equals         constant varchar2(30) := '=='; --Equals (Default, used if not specified explicitly)
+    c_op_not_equals     constant varchar2(30) := '!='; --Does not equal
+    c_op_greater        constant varchar2(30) := '>';  --Greater than
+    c_op_less           constant varchar2(30) := '<';  --Less than
+    c_op_greater_or_eq  constant varchar2(30) := '>='; --Greater than or equal to
+    c_op_less_or_eq     constant varchar2(30) := '<='; --Less than or equal to
+    c_op_contains       constant varchar2(30) := '=@'; --Contains substring
+    c_op_not_contains   constant varchar2(30) := '!@'; --Does not contain substring
+    c_op_like           constant varchar2(30) := '=~'; --Contains a match for the regular expression
+    c_op_not_like       constant varchar2(30) := '!~'; --Does not match regular expression
+    --
+    l_str varchar2(32767);
+  begin
+
+    --Checks
+    if (p_db_fields is null or p_db_fields.count = 0) 
+      and (p_operations is null or p_operations.count = 0) 
+      and (p_bind_names is null or p_bind_names.count = 0)
+    then
+      return null;
+    elsif p_db_fields is null then
+      raise_application_error(-20000, 'Paramter p_db_fields is null');
+    elsif p_operations is null then
+      raise_application_error(-20000, 'Paramter p_operations is null');
+    elsif p_bind_names is null then
+      raise_application_error(-20000, 'Paramter p_bind_names is null');
+    elsif p_db_fields.count <> p_operations.count then
+      raise_application_error(-20000, 'Number of records in p_db_fields and p_operations must be equal');
+    elsif p_db_fields.count <> p_bind_names.count then
+      raise_application_error(-20000, 'Number of records in p_db_fields and p_bind_names must be equal');
+    end if;
+
+
+    for i in p_db_fields.first .. p_db_fields.last loop
+
+      l_str := l_str 
+        || 'and '
+        || case nvl(p_operations(i), c_op_equals)
+          when c_op_equals        then p_db_fields(i) || ' = ' || p_bind_names(i)
+          when c_op_not_equals    then p_db_fields(i) || ' != ' || p_bind_names(i)
+          when c_op_greater       then p_db_fields(i) || ' > ' || p_bind_names(i)
+          when c_op_less          then p_db_fields(i) || ' < ' || p_bind_names(i)
+          when c_op_greater_or_eq then p_db_fields(i) || ' >= ' || p_bind_names(i)
+          when c_op_less_or_eq    then p_db_fields(i) || ' <= ' || p_bind_names(i)
+          when c_op_contains      then 'instr(lower(' || p_db_fields(i) || '), lower(' || p_bind_names(i) || ')) > 0'
+          when c_op_not_contains  then 'instr(lower(' || p_db_fields(i) || '), lower(' || p_bind_names(i) || ')) = 0'
+          when c_op_like          then 'lower(' || p_db_fields(i) || ') like lower(replace(' || p_bind_names(i) || ', ''*'', ''%''))'
+          when c_op_not_like      then 'lower(' || p_db_fields(i) || ') not like lower(replace(' || p_bind_names(i) || ', ''*'', ''%''))'
+        end || ' ';
+
+    end loop;
+    
+    return l_str;
+
+  end;
+  ---------------------------------------------------------------------------
+  function get_sql(p_sql varchar2, p_param prv_utils.param_t) return varchar2 
+  is
+    l_sql             varchar2(32767) := p_sql;
+    l_start           pls_integer := instr(l_sql, '{');
+    l_end             pls_integer := instr(l_sql, '}');
+    l_json_expression varchar2(32767);
+    l_json_array      prv_varchar4000_table_t;
+    l_fields          prv_varchar4000_table_t;
+    l_db_fields       prv_varchar30_table_t := prv_varchar30_table_t();
+    l_operations      prv_varchar30_table_t := prv_varchar30_table_t();
+    l_bind_names      prv_varchar30_table_t := prv_varchar30_table_t();
+  begin
+
+    if l_start > 0 and  l_start < l_end then
+      --Extract json expression
+      l_json_expression := substr(l_sql, l_start + 1, l_end - l_start - 1);
+        
+      l_json_array := prv_utils.java_get_array(l_json_expression);
+        
+      if l_json_array.count > 0 then
+        for i in l_json_array.first .. l_json_array.last loop
+            
+          l_fields := prv_utils.java_get_array(l_json_array(i));
+          if l_fields.count = 3 and p_param.exists(l_fields(3)) then
+              
+            l_db_fields.extend;
+            l_db_fields(l_db_fields.last) := l_fields(1);
+                
+            l_operations.extend;
+            l_operations(l_operations.last) := case when p_param.exists(l_fields(2)) then p_param(l_fields(2)) end;
+                
+            l_bind_names.extend;
+            l_bind_names(l_bind_names.last) := ':' || l_fields(3);
+              
+          end if;
+            
+        end loop;
+      end if;
+        
+      --Replace expression with where clause
+      l_sql := get_sql
+      (
+        substr(l_sql, 1, l_start - 1)
+          || get_where_clause(l_db_fields, l_operations, l_bind_names)
+          || substr(l_sql, l_end + 1), 
+        p_param
+      ); 
+    end if;
+      
+    return l_sql;
+  end;
+  ---------------------------------------------------------------------------
+  function get_response(p_json_params varchar2, p_out_param out varchar2, p_rows prv_varchar4000_table_t) return sys_refcursor 
+  is
+    --Errors
+    c_err_bad_request           constant number := 400;
+    c_err_unauthorized          constant number := 401;
+    c_err_forbidden             constant number := 403;
+    c_err_method_not_allowed    constant number := 405;
+    c_err_user_expired          constant number := 412;
+    c_err_internal_server_error constant number := 500;
+    --Internal parameters: suppressed in restman
+    c_cursor_columns  constant varchar2(30) := 'i#cursor_columns';
+    c_http_error_code constant varchar2(30) := 'i#http_error_code';
+    c_error_message   constant varchar2(30) := 'i#error_message';
+    --
+    c_sql_cursor_mask       constant number := 1;
+    c_plsql_cursor_mask     constant number := 2;
+    --
+    l_cur               sys_refcursor;
+    l_param             prv_utils.param_t;
+    l_out_param         prv_utils.param_t;
+    l_user_rec          app_users%rowtype;
+    l_request_pattern   prv_api_resource.request_pattern%type;
+    l_resource_rec      prv_api_resource%rowtype;
+    l_resource_id       varchar2(256);
+    l_cursor            integer;
+    l_out_cursor        integer;
+    l_status            integer;
+    l_sql               varchar2(32767);
+    l_original_msg      varchar2(4000);
+    l_error_code        pls_integer;
+    l_orderby_clause    varchar2(4000);
+    --
+    l_out_array            param_desc_t;
+    l_required_param_array param_desc_t;
+    l_optional_param_array param_desc_t;
+    --
+    l_allowed_cc  boolean;
+    --
+    function return_error(p_error_code number, p_user_error_msg varchar2, p_system_error_msg varchar2 := null) return sys_refcursor is
+    begin
+      --Error occured before log_exec
+      if prv_var.m_exec_id is null then
+        log_exec(l_request_pattern, p_json_params);
+      end if;
+      
+      l_out_param(c_http_error_code) := p_error_code;
+      l_out_param(c_error_message) := p_user_error_msg;
+      p_out_param := prv_utils.param2json(l_out_param);
+      log_error('code: ' || p_error_code || '; message: ' || nvl(p_system_error_msg, p_user_error_msg));
+      rollback;
+      app_utils.clear_user_env;
+      return null;
+    end;
+    --
+    function return_success return sys_refcursor is
+    begin
+      p_out_param := prv_utils.param2json(l_out_param, true);
+      log_success;
+      commit;
+      return l_cur;
+    end;
+    --
+    function get_params(p_request_pattern varchar2, p_direction number, p_required number) return param_desc_t
+    is
+      l_res param_desc_t;
+    begin
+
+      select *
+      bulk collect into l_res
+      from prv_api_resource_param
+      where param_direction = p_direction
+      and (p_required is null or param_required = p_required)
+      and request_pattern = p_request_pattern;
+      
+      return l_res;
+    end;
+    --
+  begin
+
+    app_utils.clear_user_env;
+    
+    if p_rows is not null and p_rows.count > 0 then
+      prv_var.m_rows := p_rows;
+    else
+    
+      if prv_var.m_rows is not null then
+        prv_var.m_rows.delete;
+      end if;
+      
+      prv_var.m_rows := null;
+    
+    end if;
+
+    --Check and convert from JSON
+    l_param := prv_utils.json2param(p_json_params);
+
+    --Add standard parameters
+    l_request_pattern := get(l_param, 'method')
+      ||':'||prv_utils.extract_val(get(l_param, 'uri'), '/', 3);
+
+    l_resource_id := prv_utils.extract_val(get(l_param, 'uri'), '/', 4);
+    if l_resource_id is not null then
+      l_request_pattern := l_request_pattern || '/{id}';
+      l_param('id') := l_resource_id;
+    end if;
+
+    --Get resource metadata
+    begin
+      select *
+      into l_resource_rec
+      from prv_api_resource
+      where request_pattern = l_request_pattern;
+    exception when no_data_found then
+      return return_error(c_err_method_not_allowed, 'Request '||l_request_pattern||' unsupported');
+    end;
+
+    if l_user_rec.user_id is null and l_resource_rec.auth_required = 1 then
+      return return_error(c_err_unauthorized, 'Authorization failed');
+    elsif l_user_rec.pwd_expire_date < sysdate then
+      return return_error(c_err_user_expired, 'User account expired');
+    elsif l_resource_rec.auth_required = 1 then
+      
+      --Check contract company
+      if not l_allowed_cc then
+        return return_error(c_err_forbidden, 'Forbidden; host: ' || get(l_param, 'host'));
+      end if;
+      
+      --Init user context
+      app_utils.init_user_env(l_user_rec, get(l_param, 'remote_addr'));
+    end if;
+
+    --Log execution
+    log_exec(l_request_pattern, p_json_params);
+
+    --Init
+    l_sql := get_sql
+    (
+      l_resource_rec.sql_template 
+        || case when l_resource_rec.rls_condition is not null then ' where ' || l_resource_rec.rls_condition end,
+      l_param
+    );
+    
+    --Orderby clause
+    l_orderby_clause := lower(get(l_param, c_orderby_clause_pn));
+    if bitand(l_resource_rec.return_cursor, c_sql_cursor_mask) > 0
+      and l_orderby_clause is not null
+    then
+      if l_orderby_clause = regexp_substr(l_orderby_clause, '(\d+(\s+asc)?(\s+desc)?(\s*,\s*)?)+') then
+        l_sql := l_sql || ' order by ' || l_orderby_clause;
+      else
+        raise_application_error(-20000, 'Invalid value for orderby_clause parameter: ' || l_orderby_clause);
+      end if;
+    end if;
+    
+    l_out_array := get_params(l_resource_rec.request_pattern, 1, 1);
+    l_required_param_array := get_params(l_resource_rec.request_pattern, 0, 1);
+    l_optional_param_array := get_params(l_resource_rec.request_pattern, 0, 0);
+
+    --Parse
+    l_cursor := dbms_sql.open_cursor;
+      
+    dbms_sql.parse(l_cursor, l_sql, dbms_sql.native);
+
+    --Bind standard params
+    bind_varchar(l_cursor, l_sql, ':user_name', l_user_rec.user_email);
+    bind_number(l_cursor, l_sql, ':user_id', l_user_rec.user_id);
+    bind_varchar(l_cursor, l_sql, ':origin', get(l_param, 'origin'));
+    bind_varchar(l_cursor, l_sql, ':host', get(l_param, 'host'));
+    bind_number(l_cursor, l_sql, ':user_time_offset', nvl(sys_context('user_ctx', 'user_time_offset') / 24, 0));
+    
+    --Bind out params
+    if l_out_array.count > 0
+      and bitand(l_resource_rec.return_cursor, c_sql_cursor_mask) = 0
+      and bitand(l_resource_rec.return_cursor, c_plsql_cursor_mask) = 0
+    then
+      for i in l_out_array.first..l_out_array.last loop
+        bind_param(l_cursor, l_sql, l_out_array(i), null, 4000);
+      end loop;
+
+    else
+      --Get response column list
+      l_out_param(c_cursor_columns) := null;
+      l_out_array := get_params(l_resource_rec.request_pattern, 1, null);
+      if l_out_array.count > 0 then
+        for i in l_out_array.first .. l_out_array.last loop
+          l_out_param(c_cursor_columns) := l_out_param(c_cursor_columns) || l_out_array(i).param_name || ',';
+        end loop;
+        l_out_param(c_cursor_columns) := rtrim(l_out_param(c_cursor_columns), ',');
+      end if;
+    end if;
+
+    --Bind required params
+    if l_required_param_array.count > 0 then
+      for i in l_required_param_array.first..l_required_param_array.last loop
+        if l_required_param_array(i).param_name <> 'rows' then
+          if (not l_param.exists(l_required_param_array(i).param_name) or l_param(l_required_param_array(i).param_name) is null) 
+          then
+            return return_error(c_err_bad_request, 'Parameter '||l_required_param_array(i).param_name||' required');
+          end if;
+          bind_param(l_cursor, l_sql, l_required_param_array(i), get(l_param, l_required_param_array(i).param_name));
+        end if;
+      end loop;
+    end if;
+
+    --Bind optional params
+    if l_optional_param_array.count > 0 then
+      for i in l_optional_param_array.first..l_optional_param_array.last loop
+        bind_param
+        (
+          l_cursor, 
+          l_sql, 
+          l_optional_param_array(i), 
+          get
+          (
+            l_param, 
+            l_optional_param_array(i).param_name, 
+            case when get(l_param, 'method') in ('PUT', 'DELETE') then not_exists_val end
+          )
+        );
+      end loop;
+    end if;
+
+    --Bind cursor variable
+    if bitand(l_resource_rec.return_cursor, c_plsql_cursor_mask) > 0 then
+      dbms_sql.bind_variable(l_cursor, ':l_out_cursor', l_out_cursor);
+    end if;
+
+    --Reset m_last_id
+    prv_var.m_last_id := null;
+    prv_var.m_rows_affected := 0;
+        
+    l_status := dbms_sql.execute(l_cursor);
+
+    --Init ref_cursor
+    if bitand(l_resource_rec.return_cursor, c_sql_cursor_mask) > 0 then
+      l_cur := dbms_sql.to_refcursor(l_cursor);
+    elsif bitand(l_resource_rec.return_cursor, c_plsql_cursor_mask) > 0 then
+      dbms_sql.variable_value(l_cursor, 'l_out_cursor', l_out_cursor);
+      l_cur := dbms_sql.to_refcursor(l_out_cursor);
+      dbms_sql.close_cursor(l_cursor);
+    else
+    
+      --Set rows_affected
+      if substr(l_resource_rec.sql_template, 1, 6) in ('delete', 'update') and l_status > 0 then
+        prv_var.m_rows_affected := l_status;
+      end if;
+
+      --Bind values for out parameters
+      if l_out_array.count > 0 then
+        for i in l_out_array.first..l_out_array.last loop
+          l_out_param(l_out_array(i).param_name) := get_var_value(l_cursor, l_out_array(i));
+        end loop;
+      end if;    
+    
+      
+      dbms_sql.close_cursor(l_cursor);
+    end if;
+
+    return return_success;
+
+  exception when others then
+    --Close cursor
+    if dbms_sql.is_open(l_cursor) then
+      dbms_sql.close_cursor(l_cursor);
+    end if;
+    --Log exception
+    --prv_utils.save_debug('RESTful API', substrb(dbms_utility.format_error_stack||chr(10)||dbms_utility.format_error_backtrace||'; query: '||l_sql, 1, 4000), prv_utils.c_debug_warning);
+    
+    l_error_code := sqlcode;
+    l_original_msg := sqlerrm;
+    
+    if sqlcode in (-4068, -4061) then
+      raise;
+    else
+      return return_error
+      (
+        case
+          when l_error_code = -20000 
+          then c_err_bad_request
+          else c_err_internal_server_error
+        end, 
+        get_translated_error_msg(l_original_msg, l_error_code),
+        l_original_msg
+      );
+    end if;
+  end;
+  ---------------------------------------------------------------------------
+  function get_translated_error_msg(p_original_msg varchar2, p_sqlcode number := null) return varchar2 
+  is
+  begin
+    return p_original_msg;
+  
+  /*
+    p_translated_msg varchar2(4000) := prv_utils.translate_error_msg(p_original_msg);
+    --
+    function get_ora_hash(p_str varchar2) return number 
+    is
+      l_res number;
+    begin
+      select ora_hash(p_str)
+      into l_res
+      from dual;
+      
+      return l_res;
+    end;
+  begin  
+    if p_original_msg = p_translated_msg then
+      
+      --Unknown error
+      if prv_var.c_debug_mode then
+        return p_original_msg;
+      else    
+        return 'Could not complete request due to error #' 
+          || nvl(p_sqlcode, get_ora_hash(p_original_msg))
+          || ' please contact administrator for details';
+      end if;
+      
+    else
+      return p_translated_msg;
+    end if;*/
+  end;
+  ---------------------------------------------------------------------------
+  function get_param_list return sys_refcursor 
+  is
+    l_cur sys_refcursor;
+  begin
+
+    open l_cur for
+    select param_code, 
+      param_value
+    from prv_param
+    where param_code in (select column_value from table(prv_var.c_rtl_params));
+
+    return l_cur;
+  end;
+  ---------------------------------------------------------------------------
+  --{"date":{"year":2016,"month":4,"day":8},"time":{"hour":13,"minute":10,"second":20,"nano":0}}
+  function parse_date(p_json varchar2) return date
+  is
+    l_date varchar2(256);
+    l_time varchar2(256);
+  begin
+
+    if p_json is null then
+      return null;
+    end if;
+    
+    l_date := prv_utils.get_key(p_json, 'date');
+    l_time := prv_utils.get_key(p_json, 'time');
+
+    return case 
+      when l_date is null 
+      then null
+      else to_date
+    (
+      prv_utils.get_key(l_date, 'year')
+        || '.' || prv_utils.get_key(l_date, 'month')
+        || '.' || prv_utils.get_key(l_date, 'day')
+          || ' ' || nvl(prv_utils.get_key(l_time, 'hour'), '00')
+          || ':' || nvl(prv_utils.get_key(l_time, 'minute'), '00')
+          || ':' || nvl(prv_utils.get_key(l_time, 'second'), '00'),
+      'YYYY.MM.DD HH24:MI:SS'
+      )
+    end;
+    
+  end;
+  ---------------------------------------------------------------------------
+  procedure convert_params
+  (
+    p_names_tab       prv_varchar4000_table_t, 
+    p_new_values_tab  prv_varchar4000_table_t, 
+    p_old_values_tab  prv_varchar4000_table_t,
+    p_names           out dbms_sql.varchar2_table,
+    p_values          out dbms_sql.varchar2_table
+  )
+  is
+  begin
+
+    if p_names_tab.count > 0 then
+      
+      for i in p_names_tab.first .. p_names_tab.last loop
+      
+        p_names(i) := p_names_tab(i);
+        
+        p_values(i) := case 
+          when p_new_values_tab(i) = not_exists_val
+          then p_old_values_tab(i)
+          else p_new_values_tab(i)
+        end;
+      
+      end loop;
+      
+    end if;
+        
+  
+  
+  end;
+  ---------------------------------------------------------------------------
+  function get_api_resource_list return sys_refcursor 
+  is
+    l_cur sys_refcursor;
+  begin
+
+    open l_cur for
+    select request_pattern, 
+      description, 
+      required_roles, 
+      sql_template, 
+      rls_condition, 
+      return_cursor, 
+      auth_required, 
+      enable_vpd, 
+      module
+    from prv_api_resource
+    order by regexp_substr(request_pattern, '[^:]+', 1, 2), request_pattern;
+
+    return l_cur;
+
+  end;
+  ---------------------------------------------------------------------------
+  function get_api_resource_param_list(p_request_pattern varchar2) return sys_refcursor 
+  is
+    l_cur sys_refcursor;
+    c_orderby_clause varchar2(100) := c_orderby_clause_pn;
+  begin
+
+    open l_cur for
+    select request_pattern, 
+      param_name,
+      param_descr ||case 
+          when param_name = c_orderby_clause and param_direction = 0
+          then 
+            (
+              select ' (' || listagg(p2.order_num || ' - ' || p2.param_name, ', ') within group (order by p2.order_num) || ')'
+              from prv_api_resource_param p2
+              where p2.request_pattern = p_request_pattern
+              and param_direction = 1
+              and order_num is not null
+            )
+        end param_descr,
+      param_direction, 
+      param_required, 
+      param_type,
+      param_in
+    from prv_api_resource_param
+    where request_pattern = p_request_pattern
+    and not regexp_like(param_name, 'i#[^ ]*') --Hide system parameters
+    order by order_num, param_name;
+
+    return l_cur;
+
+  end;
+  ---------------------------------------------------------------------------
+  function test_bind(l_resource_rec prv_api_resource%rowtype) return varchar2
+  is
+    l_sql               varchar2(32767);
+    l_cursor            integer;
+    l_status            integer;
+    l_bind_errors       varchar2(32767);
+    l_exec_error        varchar2(4000);
+    l_out_cursor        integer;
+  begin
+
+    if l_resource_rec.sql_template is null then
+      return null;
+    end if;
+    
+    --Init
+    l_sql := l_resource_rec.sql_template 
+        || case when l_resource_rec.rls_condition is not null then ' where ' || l_resource_rec.rls_condition end;
+
+    --Parse
+    l_cursor := dbms_sql.open_cursor;
+      
+    begin
+      dbms_sql.parse(l_cursor, l_sql, dbms_sql.native);
+    exception when others then
+      dbms_sql.close_cursor(l_cursor);    
+      return l_resource_rec.request_pattern || ' - SQL Parsing failed: ' || sqlerrm;
+    end;
+    
+    for i in 
+    (
+      select *
+      from prv_api_resource_param
+      where request_pattern = l_resource_rec.request_pattern
+      and param_name not in ('rows_affected', 'rec_count', 'first_rec', 'orderby_clause')
+      and 
+      (
+        param_direction = 0 
+        or (param_direction = 1 and l_resource_rec.return_cursor = 0)
+      )
+    )
+    loop
+    
+      begin
+        bind_param(l_cursor, case when i.param_name = 'id' then l_sql end, i, null);
+      exception when others then
+        l_bind_errors := l_bind_errors 
+          || '    binding of ' || i.param_name || ' failed' || chr(13);
+      end;
+
+    end loop;
+    
+    --Bind standard params
+    bind_number(l_cursor, l_sql, ':user_car_id', null);
+    bind_varchar(l_cursor, l_sql, ':user_name', null);
+    bind_number(l_cursor, l_sql, ':user_id', null);
+    bind_varchar(l_cursor, l_sql, ':origin', null);
+    bind_varchar(l_cursor, l_sql, ':host', null);
+    bind_number(l_cursor, l_sql, ':user_time_offset', null);
+    
+    --Optional
+    bind_number(l_cursor, l_sql, ':rows_affected', null);
+    bind_number(l_cursor, l_sql, ':rec_count', null);
+    bind_number(l_cursor, l_sql, ':first_rec', null);
+    
+    if bitand(l_resource_rec.return_cursor, 2) > 0 then
+      dbms_sql.bind_variable(l_cursor, ':l_out_cursor', l_out_cursor);
+    end if;
+
+    begin
+      l_status := dbms_sql.execute(l_cursor);
+    exception when others then
+      if sqlcode not in (-20000, -1403, -6502, -1400, 100) then
+        l_exec_error := '    execute error: ' || sqlerrm;
+      end if;
+    end;
+    
+    dbms_sql.close_cursor(l_cursor);    
+    
+    return l_resource_rec.request_pattern 
+      || case when l_bind_errors || l_exec_error is null 
+          then ' - OK'
+          else ' - Errors: ' || chr(13)
+      end
+      || l_bind_errors
+      || l_exec_error;
+
+  end;
+
+end;
+/

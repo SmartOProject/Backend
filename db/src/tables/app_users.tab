@@ -1,0 +1,25 @@
+﻿begin
+  prv_inst_utils.update_table('
+create table app_users
+(
+  user_id number not null enable,
+  user_email varchar2(256) not null enable,
+  user_phone varchar2(16) not null enable,
+  pwd varchar2(256) not null enable,
+  pwd_expire_date date,
+  pwd_salt varchar2(256) not null enable,
+  user_active number not null enable,
+  left_auth number,
+  first_name varchar2(256),
+  middle_name varchar2(256),
+  last_name varchar2(256),
+  birthday date,
+  lang varchar2(256),
+  created date,
+  last_updated date,
+  constraint app_users_pk primary key (user_id) using index enable,
+  constraint app_users_email_unq unique (user_email) using index enable,
+  constraint app_users_phone_unq unique (user_phone) using index enable
+)');
+end;
+/

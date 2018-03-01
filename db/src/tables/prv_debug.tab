@@ -1,0 +1,14 @@
+﻿begin
+  prv_inst_utils.update_table('
+create table prv_debug
+(
+  debug_id number not null enable,
+  debug_time date not null enable,
+  debug_source varchar2(256) not null enable,
+  debug_user varchar2(256) not null enable,
+  debug_message varchar2(4000) not null enable,
+  debug_type varchar2(32),
+  constraint prv_debug_pk primary key (debug_id) using index enable
+)');
+end;
+/

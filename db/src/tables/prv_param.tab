@@ -1,0 +1,16 @@
+begin
+  prv_inst_utils.update_table('
+create table prv_param
+(
+  param_code varchar2(256) not null enable,
+  param_value varchar2(2048) not null enable,
+  param_is_editable number(1,0) default 0 not null enable,
+  param_is_hidden number(1,0) default 0 not null enable,
+  param_signature varchar2(256),
+  param_last_updated date default sysdate,
+  param_is_public number(1,0) default 0 not null enable,
+  param_validation_json varchar2(4000) default ''{}'' not null enable,
+  constraint prv_param_pk primary key (param_code) using index enable
+)');
+end;
+/

@@ -1,0 +1,20 @@
+﻿begin
+  prv_inst_utils.update_table('
+create table prv_api_resource
+(
+  request_pattern varchar2(256) not null enable,
+  description varchar2(256),
+  required_roles varchar2(4000),
+  sql_template varchar2(4000),
+  rls_condition varchar2(4000),
+  return_cursor number(1,0) default 1 not null enable,
+  auth_required number(1,0) default 1 not null enable,
+  enable_vpd number(1,0) default 0 not null enable,
+  module varchar2(30),
+  constraint prv_api_resource_pk primary key (request_pattern) using index enable
+)
+segment creation immediate
+pctfree 10 pctused 40 initrans 1 maxtrans 255
+nocompress logging');
+end;
+/
