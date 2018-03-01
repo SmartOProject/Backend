@@ -1,0 +1,243 @@
+#!/bin/bash
+# chkconfig: 2345 92 08
+# description: Starts and stops the inVoice RESTful API java application
+# processname: restman
+# default config: /etc/invoice/restman.conf
+# modified: Ildar Mukhametzhanov, 2015
+# ----------------------------------------------------------------------
+USER=oracle
+. /etc/rc.d/init.d/functions
+. /home/oracle/.bash_profile
+
+#Set variables
+APP_HOME="/usr/lib/invoice/restman"
+SERVICE_NAME=restman
+SHELL=/bin/bash
+PID_DIR_DEF=/var/run/restman
+PID_FILE=restman.pid
+TMP_DIR=/var/tmp
+CONFIG_DEF=/etc/invoice/restman.conf
+UIAPP_URL_DEF=http://127.0.0.1:8080
+JAVA_OPTS_DEF="-Xmx512m -Xms16m -Doracle.net.tns_admin=$ORACLE_HOME/network/admin -Duser.timezone=UTC -Djava.io.tmpdir=$TMP_DIR -XX:+HeapDumpOnOutOfMemoryError"
+JAR_PATH=/usr/lib/invoice/restman/restman-1.0.jar
+START_ERROR_FILE=/var/log/invoice/restman_start_error.log
+DEBUG_LOG=/var/log/invoice/restman_debug.log
+
+#Try to override variables from config
+if [ -f /etc/sysconfig/${SERVICE_NAME}.conf ]; then
+. /etc/sysconfig/${SERVICE_NAME}.conf
+fi
+
+declare -i START_TIMEOUT_default=180
+: ${START_TIMEOUT=${START_TIMEOUT_default}}
+: ${CONFIG=${CONFIG_DEF}}
+: ${PID_DIR=${PID_DIR_DEF}}
+: ${UIAPP_URL=${UIAPP_URL_DEF}}
+: ${JAVA_OPTS=${JAVA_OPTS_DEF}}
+
+
+#Init pid environment
+PID_PATH_NAME=$PID_DIR/$PID_FILE
+mkdir -p $PID_DIR
+chown -Rf $USER $PID_DIR
+
+kill_proc()
+{
+    if [ -f $PID_PATH_NAME ]; then
+      PID=`cat $PID_PATH_NAME`
+      if [ -d /proc/$PID ]; then
+        kill -9 $PID
+        MSG=""
+      else
+        MSG="$SERVICE_NAME process not found."
+      fi
+      rm -f $PID_PATH_NAME
+    else
+      MSG="$SERVICE_NAME is not running."
+    fi
+
+    if [[ $1 = "echo_status" ]]; then
+      echo -n $MSG
+    fi
+    RETVAL=0
+    return $RETVAL
+}
+
+selftest()
+{
+    RETVAL=""
+    MSG=""
+    if [ -f $PID_PATH_NAME ]; then
+      PID=`cat $PID_PATH_NAME`
+      if [ -d /proc/$PID ]; then
+        #	program is running or service is OK
+
+        ANSWER=`curl -s $UIAPP_URL/self_test`
+
+        if [[ $ANSWER == "OK" ]]; then
+          MSG="$SERVICE_NAME service is running."
+          RETVAL=0
+        else
+          MSG="$SERVICE_NAME not responding."
+          RETVAL=4
+        fi
+
+      else
+        #program is dead and pid file exists
+        MSG="$SERVICE_NAME process not found."
+        RETVAL=1
+      fi
+    else
+      #program is not running
+      MSG="$SERVICE_NAME is not running."
+      RETVAL=3
+    fi
+
+    if [[ $1 = "echo_status" ]]; then
+      echo $MSG
+    fi
+
+    return $RETVAL
+}
+
+start()
+{
+    echo -n "Starting $SERVICE_NAME"
+    status -p $PID_PATH_NAME $SERVICE_NAME &> /dev/null
+    RETVAL=$?
+
+    if [ $RETVAL -eq 0 ]; then
+
+      		success "$SERVICE_NAME"
+      		echo "$SERVICE_NAME is already running"
+      		return $RETVAL
+
+    else
+
+      #try to kill process
+      kill_proc
+
+      #run main tread
+
+
+      if [ -f $DEBUG_LOG ]; then
+        chown $USER $DEBUG_LOG
+        su - $USER -c "nohup strace java $JAVA_OPTS -jar $JAR_PATH $PID_PATH_NAME $CONFIG >>$DEBUG_LOG 2>&1 &" >>$DEBUG_LOG 2>&1
+      else
+        su - $USER -c "nohup java $JAVA_OPTS -jar $JAR_PATH $PID_PATH_NAME $CONFIG >/dev/null 2>$START_ERROR_FILE &" >/dev/null
+      fi
+
+      RETVAL=$?
+
+      #wait until application starts
+      for ((var=1; var <= $START_TIMEOUT ; var++))
+      do
+        echo -n "."
+        sleep 1s
+        selftest
+        RETVAL=$?
+        if [ $RETVAL -eq 0 ]; then
+          break
+        fi
+      done
+
+      #echo result
+      if [ $RETVAL -eq 0 ]; then
+        success "$SERVICE_NAME"
+        echo
+      else
+        echo "Timeout($START_TIMEOUT sec.). Killing $SERVICE_NAME."
+        kill_proc
+        failure "$SERVICE_NAME"
+    	if [ -f $START_ERROR_FILE ]; then
+           cat $START_ERROR_FILE
+           rm -f $START_ERROR_FILE
+        fi
+        echo
+      fi
+
+    fi
+
+    return $RETVAL
+}
+
+stop()
+{
+    echo -n "Stoping $SERVICE_NAME... "
+    status -p $PID_PATH_NAME $SERVICE_NAME &> /dev/null
+    RETVAL=$?
+    if [ $RETVAL -eq 3 ]; then
+        success "$SERVICE_NAME"
+        echo "$SERVICE_NAME is already stopped"
+        RETVAL=0
+        return $RETVAL
+    fi
+    kill_proc
+
+    if [[ $MSG == "" ]]; then
+      success "$SERVICE_NAME"
+      echo
+    else
+      failure "$SERVICE_NAME"
+      echo
+    fi
+
+    rm -rf $TMP_DIR/tomcat*
+    rm -f $TMP_DIR/UCP-*
+
+    return 0
+}
+
+reload()
+{
+    echo -n "Reload $SERVICE_NAME: "
+    curl $UIAPP_URL/reload_configuration?newConfigPath=$CONFIG
+
+    	status -p $PID_PATH_NAME $SERVICE_NAME &> /dev/null
+    	RETVAL=$?
+
+    if [ $RETVAL -eq 0 ]; then
+      success "$SERVICE_NAME"
+      echo
+    else
+      failure "$SERVICE_NAME"
+      echo
+    fi
+
+    return $RETVAL
+}
+
+
+case $1 in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  status)
+    		status -p $PID_PATH_NAME $SERVICE_NAME
+    ;;
+  selftest)
+    selftest echo_status
+    ;;
+  restart)
+    stop
+    start
+    ;;
+  reload)
+    reload
+    ;;
+  force-reload)
+    reload
+    ;;
+  try-restart)
+    stop
+    start
+    ;;
+  *)
+    echo "Usage: $0 [start|stop|restart|reload|force-reload|status|try-restart|selftest]"
+    ;;
+esac
+
+exit $RETVAL
