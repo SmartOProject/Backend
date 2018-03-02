@@ -2,14 +2,10 @@
 <configuration status="warn" name="Restman" packages="">
 
     <properties>
-        <property name="LOG_DIR">/var/log/invoice</property>
+        <property name="LOG_DIR">/var/log</property>
         <property name="patternlayout">%d [%-3tid] %-5level %-30c{2} - %msg%n%throwable{full}</property>
         <property name="filename">${LOG_DIR}/restman.log</property>
         <property name="filenamePattern">${LOG_DIR}/restman-%d{yyyy-MM-dd}-%i.log</property>
-
-        <property name="EdrDirectory">/u01/app/oracle/cdr.files/rtl.new</property>
-        <property name="EdrFileName">${LOG_DIR}/edr.inprogress</property>
-        <property name="EdrFileNamePattern">${EdrDirectory}/edr_%d{yyyy_MM_dd_HH_mm_ss}-%i_rtl_edrs.csv</property>
     </properties>
 
     <Appenders>
@@ -22,26 +18,14 @@
             <DefaultRolloverStrategy max="30" />
         </RollingFile>
 
-        <RollingFile name="EdrLoggerFile" fileName="${EdrFileName}" filePattern="${EdrFileNamePattern}">
-            <PatternLayout pattern="%msg" />
-            <Policies>
-                <CronTriggeringPolicy schedule="0,30 * * * * ?"/>
-                <SizeBasedTriggeringPolicy size="32MB" />
-            </Policies>
-        </RollingFile>
-
-
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="${patternlayout}"/>
         </Console>
     </Appenders>
 
     <Loggers>
-        <Logger name="com.alarislabs" level="info">
+        <Logger name="com.smarto" level="info">
             <AppenderRef ref="RollingFile" />
-        </Logger>
-        <Logger name="com.alarislabs.invoice.smsmodule.EdrWriter" level="trace" additivity="false">
-            <AppenderRef ref="EdrLoggerFile" />
         </Logger>
         <Root level="info">
             <AppenderRef ref="Console"/>

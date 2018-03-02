@@ -3,13 +3,12 @@
   --Package variables are not allowed here due to keep it stateless
 
   type param_t is table of varchar2(4000) index by varchar2(4000);
-  
+
+  function get_all_properties(p_json varchar2) return prv_abstract_table_t;
   function get_key(p_json varchar2, p_key varchar2) return varchar2;
   function json2param(p_json varchar2) return prv_utils.param_t;
   function validate_value(p_validation_json varchar2, p_value varchar2) return varchar2;
-  function get_all_properties(p_json varchar2) return prv_abstract_table_t;
   function str2plsqltable(p_str varchar2, p_separator varchar2) return dbms_sql.varchar2_table;
-  function java_get_array(p_json varchar2) return prv_varchar4000_table_t;
   function extract_val(p_str varchar2, p_sep char, p_position pls_integer) return varchar2;
   function param2json
   (
@@ -720,19 +719,48 @@
 end;
 /
 create or replace package body prv_utils as
-
-
-
+  -----------------------------------------------------------------------------------------------
   function get_key(p_json varchar2, p_key varchar2) return varchar2
   is
+    l_result varchar2(4000);
   begin
-    return null; --tODO
+    
+    execute immediate 'select json_value(:p_json, ''$.' || p_key ||''') from dual' into l_result using p_json;
+    return l_result;
+
   end;
   -----------------------------------------------------------------------------------------------
   function get_all_properties(p_json varchar2) return prv_abstract_table_t
   is
+    l_json      json := json_parser.parser(p_json);
+    l_keys_list json_list := l_json.get_keys();
+    l_res       prv_abstract_table_t := prv_abstract_table_t();
+    l_key       varchar2(4000);
   begin
-    return prv_abstract_table_t(); --TODO
+
+    for i in 1 ..  l_keys_list.count loop
+      
+      l_key := l_keys_list.get(i).get_string();
+
+      l_res.extend;
+      l_res(l_res.last) := prv_abstract_rec_t
+      (
+        null, 
+        null, 
+        null, 
+        l_key,
+        coalesce
+        (
+          l_json.get(l_key).get_string(),
+          l_json.get(l_key).to_char()
+        ),
+        null
+      );
+    
+    end loop;
+    
+    return l_res;
+    
   end;
   -----------------------------------------------------------------------------------------------
   function shield_unshield(p_str varchar2, p_mode number) return varchar2 is
@@ -962,14 +990,6 @@ create or replace package body prv_utils as
     end loop;
 
     return l_res;
-
-  end;
-  -----------------------------------------------------------------------------------------------
-  function java_get_array(p_json varchar2) return prv_varchar4000_table_t
-  is
-  begin
-
-    return prv_varchar4000_table_t(); --TODO
 
   end;
   -----------------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.alarislabs</groupId>
+    <groupId>com.smarto</groupId>
     <artifactId>restman</artifactId>
     <version>1.0</version>
 
@@ -67,11 +67,6 @@
             <version>3.9</version>
         </dependency>
         <dependency>
-            <groupId>com.oracle</groupId>
-            <artifactId>jdbc6</artifactId>
-            <version>11.2.0.4</version>
-        </dependency>
-        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>4.11</version>
@@ -79,32 +74,26 @@
         </dependency>
         <dependency>
             <groupId>com.oracle</groupId>
+            <artifactId>ojdbc6</artifactId>
+            <version>11.2.0.4</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/jar/jdbc6-11.2.0.4.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle</groupId>
             <artifactId>ucp</artifactId>
             <version>11.2.0.3</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/jar/ucp-11.2.0.3.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>nl.captcha</groupId>
             <artifactId>simplecaptcha</artifactId>
             <version>1.2.1</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/jar/simplecaptcha-1.2.1.jar</systemPath>
         </dependency>
     </dependencies>
-
-    <repositories>
-        <repository>
-            <id>alaris-repo</id>
-            <name>Alaris Labs Internal Repository</name>
-            <url>http://archiva.alarislabs.com:8800/repository/internal</url>
-        </repository>
-    </repositories>
-
-    <pluginRepositories>
-        <pluginRepository>
-            <id>alaris-repo-plugin</id>
-            <name>Alaris Labs Internal Plugin Repository</name>
-            <url>http://archiva.alarislabs.com:8800/repository/internal</url>
-        </pluginRepository>
-    </pluginRepositories>
-
 
     <build>
         <plugins>
@@ -148,31 +137,6 @@
 
     <profiles>
         <profile>
-            <id>dev</id>
-            <activation>
-                <property>
-                    <name>env</name>
-                    <value>dev</value>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-jar-plugin</artifactId>
-                        <configuration>
-                            <archive>
-                                <manifest>
-                                    <addClasspath>true</addClasspath>
-                                    <mainClass>com.alarislabs.invoice.common.Restman</mainClass>
-                                </manifest>
-                            </archive>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <profile>
             <id>rpm</id>
             <activation>
                 <property>
@@ -189,10 +153,13 @@
                             <archive>
                                 <manifest>
                                     <addClasspath>true</addClasspath>
-                                    <classpathPrefix>/usr/share/alarislabs/java</classpathPrefix>
-                                    <mainClass>com.alarislabs.invoice.common.Restman</mainClass>
+                                    <classpathPrefix>/home/ec2-user/restman/dependencies</classpathPrefix>
+                                    <mainClass>com.smarto.rest.common.Restman</mainClass>
                                 </manifest>
-                            </archive>
+                                <manifestEntries>
+                                    <Class-Path>/home/ec2-user/restman/dependencies/ojdbc6-11.2.0.4.jar /home/ec2-user/restman/dependencies/ucp-11.2.0.3.jar /home/ec2-user/restman/dependencies/simplecaptcha-1.2.1.jar</Class-Path>
+                                </manifestEntries>
+                             </archive>
                         </configuration>
                     </plugin>
                 </plugins>

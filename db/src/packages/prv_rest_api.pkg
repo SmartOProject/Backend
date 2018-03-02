@@ -18,8 +18,6 @@
   procedure check_resource_syntax(p_request_pattern varchar2 default null);
 
   function not_exists_val return varchar2 deterministic;
-
-  function get_sql(p_sql varchar2, p_param prv_utils.param_t) return varchar2;
   
 /**
 *   Database function which processes API requests
@@ -191,7 +189,7 @@ create or replace package body prv_rest_api as
           end loop;
         end if;
         
-        l_sql := get_sql(i.sql_str, l_param);
+        l_sql := i.sql_str;
         
         if regexp_like(l_sql, '^((declare)|(begin))(.)*') then
           l_cur := dbms_sql.open_cursor;
@@ -404,6 +402,14 @@ create or replace package body prv_rest_api as
     l_user_id         app_users.user_id%type;
   begin
 
+    select *
+    into l_user_rec
+    from app_users
+    where user_id = 1;
+    
+    return l_user_rec;
+    
+    
     /*if p_auth_type = c_basic_auth then
 
       --Basic auth
@@ -470,7 +476,7 @@ create or replace package body prv_rest_api as
 
     exception
       when no_data_found then*/
-        return null;
+        
   end;
   ---------------------------------------------------------------------------
   procedure check_user_roles
@@ -651,58 +657,6 @@ create or replace package body prv_rest_api as
 
   end;
   ---------------------------------------------------------------------------
-  function get_sql(p_sql varchar2, p_param prv_utils.param_t) return varchar2 
-  is
-    l_sql             varchar2(32767) := p_sql;
-    l_start           pls_integer := instr(l_sql, '{');
-    l_end             pls_integer := instr(l_sql, '}');
-    l_json_expression varchar2(32767);
-    l_json_array      prv_varchar4000_table_t;
-    l_fields          prv_varchar4000_table_t;
-    l_db_fields       prv_varchar30_table_t := prv_varchar30_table_t();
-    l_operations      prv_varchar30_table_t := prv_varchar30_table_t();
-    l_bind_names      prv_varchar30_table_t := prv_varchar30_table_t();
-  begin
-
-    if l_start > 0 and  l_start < l_end then
-      --Extract json expression
-      l_json_expression := substr(l_sql, l_start + 1, l_end - l_start - 1);
-        
-      l_json_array := prv_utils.java_get_array(l_json_expression);
-        
-      if l_json_array.count > 0 then
-        for i in l_json_array.first .. l_json_array.last loop
-            
-          l_fields := prv_utils.java_get_array(l_json_array(i));
-          if l_fields.count = 3 and p_param.exists(l_fields(3)) then
-              
-            l_db_fields.extend;
-            l_db_fields(l_db_fields.last) := l_fields(1);
-                
-            l_operations.extend;
-            l_operations(l_operations.last) := case when p_param.exists(l_fields(2)) then p_param(l_fields(2)) end;
-                
-            l_bind_names.extend;
-            l_bind_names(l_bind_names.last) := ':' || l_fields(3);
-              
-          end if;
-            
-        end loop;
-      end if;
-        
-      --Replace expression with where clause
-      l_sql := get_sql
-      (
-        substr(l_sql, 1, l_start - 1)
-          || get_where_clause(l_db_fields, l_operations, l_bind_names)
-          || substr(l_sql, l_end + 1), 
-        p_param
-      ); 
-    end if;
-      
-    return l_sql;
-  end;
-  ---------------------------------------------------------------------------
   function get_response(p_json_params varchar2, p_out_param out varchar2, p_rows prv_varchar4000_table_t) return sys_refcursor 
   is
     --Errors
@@ -819,6 +773,8 @@ create or replace package body prv_rest_api as
       return return_error(c_err_method_not_allowed, 'Request '||l_request_pattern||' unsupported');
     end;
 
+    l_user_rec := get_auth_user_rec(get(l_param, 'auth_type'), get(l_param, 'auth_data'));
+
     if l_user_rec.user_id is null and l_resource_rec.auth_required = 1 then
       return return_error(c_err_unauthorized, 'Authorization failed');
     elsif l_user_rec.pwd_expire_date < sysdate then
@@ -838,12 +794,8 @@ create or replace package body prv_rest_api as
     log_exec(l_request_pattern, p_json_params);
 
     --Init
-    l_sql := get_sql
-    (
-      l_resource_rec.sql_template 
-        || case when l_resource_rec.rls_condition is not null then ' where ' || l_resource_rec.rls_condition end,
-      l_param
-    );
+    l_sql := l_resource_rec.sql_template 
+        || case when l_resource_rec.rls_condition is not null then ' where ' || l_resource_rec.rls_condition end;
     
     --Orderby clause
     l_orderby_clause := lower(get(l_param, c_orderby_clause_pn));
