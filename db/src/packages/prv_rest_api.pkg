@@ -40,8 +40,6 @@
   function get_response(p_json_params varchar2, p_out_param out varchar2, p_rows prv_varchar4000_table_t) return sys_refcursor;
 
   function get_param_list return sys_refcursor;
-
-  function get_translated_error_msg(p_original_msg varchar2, p_sqlcode number := null) return varchar2;
   
   function parse_date(p_json varchar2) return date;
 
@@ -91,32 +89,30 @@ create or replace package body prv_rest_api as
       end if;
     end loop;
 
-    if user <> 'INVOICE_HWDISP' or prv_var.c_debug_mode then
-      insert into prv_api_exec
-      (
-        exec_id, exec_date, msg_type,
-        session_db_user, session_ip,
-        exec_user_id, exec_user_name,
-        session_host, session_os_user,
-        module, action,
-        exec_params01, exec_params02, exec_params03, exec_params04,
-        exec_params05, exec_params06, exec_params07, exec_params08,
-        session_id
-      )
-      values
-      (
-        prv_var.m_exec_id, sysdate, p_msg_type,
-        user, nvl(l_client_info, sys_context('USERENV', 'IP_ADDRESS')),
-        app_utils.get_user_id, app_utils.get_user_name,
-        sys_context('USERENV', 'HOST'), sys_context('USERENV', 'OS_USER'),
-        l_module_name, l_action_name,
-        l_param_array(1), l_param_array(2), l_param_array(3), l_param_array(4),
-        l_param_array(5), l_param_array(6), l_param_array(7), l_param_array(8),
-        sys_context('userenv', 'sessionid')
-      );
+    insert into prv_api_exec
+    (
+      exec_id, exec_date, msg_type,
+      session_db_user, session_ip,
+      exec_user_id, exec_user_name,
+      session_host, session_os_user,
+      module, action,
+      exec_params01, exec_params02, exec_params03, exec_params04,
+      exec_params05, exec_params06, exec_params07, exec_params08,
+      session_id
+    )
+    values
+    (
+      prv_var.m_exec_id, sysdate, p_msg_type,
+      user, nvl(l_client_info, sys_context('USERENV', 'IP_ADDRESS')),
+      app_utils.get_user_id, app_utils.get_user_name,
+      sys_context('USERENV', 'HOST'), sys_context('USERENV', 'OS_USER'),
+      l_module_name, l_action_name,
+      l_param_array(1), l_param_array(2), l_param_array(3), l_param_array(4),
+      l_param_array(5), l_param_array(6), l_param_array(7), l_param_array(8),
+      sys_context('userenv', 'sessionid')
+    );
 
-      commit;
-    end if;
+    commit;
   end;
   ------------------------------------------------------------------------------------------------
   procedure log_error(p_error_message varchar2)
@@ -395,22 +391,12 @@ create or replace package body prv_rest_api as
     --
     l_auth_pair       varchar2(256);
     l_user_rec        app_users%rowtype;
-    --l_user_name       app_users.user_name%type;
-    --l_auth_user_name  app_users.user_name%type;
-    --l_ctx_user_name   app_users.user_name%type;
+    l_user_phone      app_users.user_phone%type;
     l_user_pwd        varchar2(256);
     l_user_id         app_users.user_id%type;
   begin
 
-    select *
-    into l_user_rec
-    from app_users
-    where user_id = 1;
-    
-    return l_user_rec;
-    
-    
-    /*if p_auth_type = c_basic_auth then
+    if p_auth_type = c_basic_auth then
 
       --Basic auth
       l_auth_pair := utl_raw.cast_to_varchar2
@@ -421,40 +407,15 @@ create or replace package body prv_rest_api as
         )
       );
 
-      l_user_name := prv_utils.extract_val(l_auth_pair, ':', 1);
+      l_user_phone := prv_utils.extract_val(l_auth_pair, ':', 1);
       l_user_pwd := prv_utils.extract_val(l_auth_pair, ':', 2);
 
-      if instr(l_user_name, '#') > 0 then
-        l_auth_user_name := prv_utils.extract_val(l_user_name, '#', 1);
-        l_ctx_user_name := prv_utils.extract_val(l_user_name, '#', 2);
-        
-        begin
-          select user_id
-          into l_user_id
-          from app_users
-          where user_name = l_auth_user_name;
-        exception when no_data_found then
-          null;
-        end;
-        bas_utils.check_role(p_role_code1 => 'ROLE-IMPERSONATE', p_user_id => l_user_id);
-      else
-        l_auth_user_name := l_user_name;
-        l_ctx_user_name := l_user_name;
-      end if;
       
       select *
       into l_user_rec
       from app_users
-      where user_name = l_ctx_user_name
-      and exists -- auth_user_name is correct
-      (
-        select 1
-        from app_users
-        where user_name = l_auth_user_name
-        and user_active = 1
-        and (user_left_auth is null or user_left_auth > 0)
-        and user_password = prv_utils.md5(user_name || l_user_pwd || user_salt)
-      );
+      where user_phone = l_user_phone
+      and pwd = l_user_pwd /*prv_utils.md5(user_name || l_user_pwd || user_salt)*/;
 
       return l_user_rec;
 
@@ -464,7 +425,7 @@ create or replace package body prv_rest_api as
       select *
       into l_user_rec
       from app_users
-      where user_name = p_auth_content;
+      where user_phone = p_auth_content;
 
       return l_user_rec;
 
@@ -475,8 +436,8 @@ create or replace package body prv_rest_api as
     end if;
 
     exception
-      when no_data_found then*/
-        
+      when no_data_found then
+        return null;
   end;
   ---------------------------------------------------------------------------
   procedure check_user_roles
@@ -688,6 +649,7 @@ create or replace package body prv_rest_api as
     l_original_msg      varchar2(4000);
     l_error_code        pls_integer;
     l_orderby_clause    varchar2(4000);
+    l_error_stack       varchar2(4000);
     --
     l_out_array            param_desc_t;
     l_required_param_array param_desc_t;
@@ -819,7 +781,7 @@ create or replace package body prv_rest_api as
     dbms_sql.parse(l_cursor, l_sql, dbms_sql.native);
 
     --Bind standard params
-    bind_varchar(l_cursor, l_sql, ':user_name', l_user_rec.user_email);
+    bind_varchar(l_cursor, l_sql, ':user_phone', l_user_rec.user_phone);
     bind_number(l_cursor, l_sql, ':user_id', l_user_rec.user_id);
     bind_varchar(l_cursor, l_sql, ':origin', get(l_param, 'origin'));
     bind_varchar(l_cursor, l_sql, ':host', get(l_param, 'host'));
@@ -920,11 +882,10 @@ create or replace package body prv_rest_api as
     if dbms_sql.is_open(l_cursor) then
       dbms_sql.close_cursor(l_cursor);
     end if;
-    --Log exception
-    --prv_utils.save_debug('RESTful API', substrb(dbms_utility.format_error_stack||chr(10)||dbms_utility.format_error_backtrace||'; query: '||l_sql, 1, 4000), prv_utils.c_debug_warning);
     
     l_error_code := sqlcode;
     l_original_msg := sqlerrm;
+    l_error_stack := dbms_utility.format_error_stack||chr(10)||dbms_utility.format_error_backtrace;
     
     if sqlcode in (-4068, -4061) then
       raise;
@@ -936,45 +897,10 @@ create or replace package body prv_rest_api as
           then c_err_bad_request
           else c_err_internal_server_error
         end, 
-        get_translated_error_msg(l_original_msg, l_error_code),
-        l_original_msg
+        l_original_msg,
+        l_error_stack
       );
     end if;
-  end;
-  ---------------------------------------------------------------------------
-  function get_translated_error_msg(p_original_msg varchar2, p_sqlcode number := null) return varchar2 
-  is
-  begin
-    return p_original_msg;
-  
-  /*
-    p_translated_msg varchar2(4000) := prv_utils.translate_error_msg(p_original_msg);
-    --
-    function get_ora_hash(p_str varchar2) return number 
-    is
-      l_res number;
-    begin
-      select ora_hash(p_str)
-      into l_res
-      from dual;
-      
-      return l_res;
-    end;
-  begin  
-    if p_original_msg = p_translated_msg then
-      
-      --Unknown error
-      if prv_var.c_debug_mode then
-        return p_original_msg;
-      else    
-        return 'Could not complete request due to error #' 
-          || nvl(p_sqlcode, get_ora_hash(p_original_msg))
-          || ' please contact administrator for details';
-      end if;
-      
-    else
-      return p_translated_msg;
-    end if;*/
   end;
   ---------------------------------------------------------------------------
   function get_param_list return sys_refcursor 
